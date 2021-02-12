@@ -40,8 +40,43 @@ def optimize(gig_pages, mb_pages, kb_pages):
     return opt
 
 class PageTableDump(gdb.Command):
+    """
+    GDB pt-dump: command for inspecting VM page tables.
+    Arguments:
+        -addr HEX_ADDR
+            The GPA of the page table. If not used, the script will use the architectural
+            register (e.g. cr3).
+        -filter FILTER [FILTER ...]
+            Specify filters for the recorded pages.
+            Supported filters:
+            w: is writeable.
+            x: is executable
+            w|x: is writeable or executable
+            ro: read-only
+            u: user-space page
+            s: supervisor page
+            wb: write-back
+            uc: uncacheable
+
+            Additionally, you can invert some filters: _w, _x, _u, _s, _wb, _uc
+        -save
+            Cache the recorded page table for that address after traversing the hierachy.
+            This will yield speed-up when printing the page table again.
+        -list
+            List the cached page tables.
+        -clear
+            Clear all saved page tables.
+
+    Example usage:
+        `pt -save -filter s w|x wb`
+            Traverse the current page table and then save it. When returning the result,
+            filter the pages to be marked as supervisor, be writeable or executable, and marked as
+            write-back.
+        `pt -addr 0x4000`
+            Traverse the page table at guest physical address 0x4000. Don't save it.
+    """
     def __init__(self):
-        super(PageTableDump, self).__init__("pt", gdb.COMMAND_DATA)
+        super(PageTableDump, self).__init__("pt", gdb.COMMAND_USER)
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument("-addr", nargs=1)
         self.parser.add_argument("-save", action="store_true")
