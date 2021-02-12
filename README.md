@@ -11,6 +11,12 @@ Although this is also possible via `monitor info mem`, the QEMU monitor provides
 * Cache collected information for future filtering and printing.
 * Filter page table information.
 
+# How to use
+
+The script is standalone but I hope that it eventually makes it way into `pwndbg` and/or `gef`.
+
+For now, do `source PATH_TO_PT_DUMPER/pt.py`.
+
 For details, just do `help pt` in gdb.
 
 # Examples
