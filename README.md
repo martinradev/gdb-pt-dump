@@ -1,6 +1,6 @@
-# gdb-pt-dumper
+# gdb-pt-dump
 
-`gdb-pt-dumper` is a gdb script to parse a guest page table and dump it to stdout in a pretty way.
+`gdb-pt-dump` is a gdb script to parse a guest page table and dump it to stdout in a pretty way.
 Although this is also possible via `monitor info mem`, the QEMU monitor provides less and sometimes incorrect information, and does not handle efficiently cases when many small pages are mapped.
 
 ## Features
@@ -15,7 +15,7 @@ Although this is also possible via `monitor info mem`, the QEMU monitor provides
 
 The script is standalone but I hope that it eventually makes it way into `pwndbg` and/or `gef`.
 
-For now, do `source PATH_TO_PT_DUMPER/pt.py`.
+For now, do `source PATH_TO_PT_DUMP/pt.py`.
 
 For details, just do `help pt` in gdb.
 
