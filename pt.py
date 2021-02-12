@@ -72,6 +72,9 @@ class PageTableDump(gdb.Command):
             Traverse the current page table and then save it. When returning the result,
             filter the pages to be marked as supervisor, be writeable or executable, and marked as
             write-back.
+        `pt -filter w x`
+            Traverse the current page table and print out mappings which are both writeable and
+            executable.
         `pt -addr 0x4000`
             Traverse the page table at guest physical address 0x4000. Don't save it.
     """
