@@ -12,7 +12,7 @@ from pt_x86_64_definitions import *
 from pt_x86_64_parse import *
 
 def rwxs_semantically_similar(p1: Page, p2: Page) -> bool:
-    return p1.w == p2.w and p1.x == p2.x and p1.s == p2.s
+    return p1.w == p2.w and p1.x == p2.x and p1.s == p2.s and p1.wb == p2.wb and p1.uc == p2.uc
 
 def merge_cont_pages(pages):
     if len(pages) == 1:
@@ -119,10 +119,10 @@ class PageTableDump(gdb.Command):
                     filters.append(lambda p: p.wb)
                 elif f == "_wb":
                     filters.append(lambda p: not p.wb)
-                elif f == "wc":
-                    filters.append(lambda p: p.wc)
-                elif f == "_wc":
-                    filters.append(lambda p: not p.wc)
+                elif f == "uc":
+                    filters.append(lambda p: p.uc)
+                elif f == "_uc":
+                    filters.append(lambda p: not p.uc)
                 else:
                     print(f"Unknown filter: {f}")
                     return
