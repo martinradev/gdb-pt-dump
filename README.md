@@ -3,7 +3,7 @@
 `gdb-pt-dumper` is a gdb script to parse a guest page table and dump it to stdout in a pretty way.
 Although this is also possible via `monitor info mem`, the QEMU monitor provides less and sometimes incorrect information, and does not handle efficiently cases when many small pages are mapped.
 
-# Features
+## Features
 
 * Dumping a page from a specific guest physical address.
 * Merging semantically-similar contiguous memory.
@@ -11,7 +11,7 @@ Although this is also possible via `monitor info mem`, the QEMU monitor provides
 * Cache collected information for future filtering and printing.
 * Filter page table information.
 
-# How to use
+## How to use
 
 The script is standalone but I hope that it eventually makes it way into `pwndbg` and/or `gef`.
 
@@ -19,7 +19,7 @@ For now, do `source PATH_TO_PT_DUMPER/pt.py`.
 
 For details, just do `help pt` in gdb.
 
-# Examples
+## Examples
 
 ![Write or Executable](example_pictures/w_or_x.jpg "Write or Executable")
 
@@ -27,6 +27,11 @@ For details, just do `help pt` in gdb.
 
 ![More filters](example_pictures/more.jpg "More filters")
 
-# Supported architectures
+## Possible issues
+
+Old QEMU versions seem to not provide access to privileged registers like cr3.
+Thus, the page table address would need to be retrieved in some other way.
+
+## Supported architectures
 
 Currently, only `x86-64` is supported but `aarch64` is underway.
