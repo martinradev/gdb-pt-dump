@@ -39,7 +39,7 @@ class PDP_Entry():
         if self.one_gig:
             self.dirty = is_dirty(value)
             self.glob = True
-            self.pd = extract_no_shift(value, 30, 52)
+            self.pd = extract_no_shift(value, 30, 51)
         else:
             self.pd = get_pdp_base(value)
         self.nx = is_nx(value)
@@ -72,7 +72,7 @@ class PD_Entry():
             self.dirty = is_dirty(value)
             self.glob = True
             self.pat = is_pat(value)
-            self.pt = extract_no_shift(value, 20, 52)
+            self.pt = extract_no_shift(value, 20, 51)
         else:
             self.pt = get_pdp_base(value)
         self.nx = is_nx(value)
@@ -102,7 +102,7 @@ class PT_Entry():
         self.dirty = is_dirty(value)
         self.glob = True
         self.pat = is_pat(value)
-        self.pt = extract_no_shift(value, 12, 52)
+        self.pt = extract_no_shift(value, 12, 51)
         self.virt = (index << 12) | parent_va
         self.nx = is_nx(value)
 
@@ -157,7 +157,7 @@ def extract(value, s, e):
     return extract_no_shift(value, s, e) >> s
 
 def extract_no_shift(value, s, e):
-    mask = ((1<<e)-1) & ~((1<<s) - 1)
+    mask = ((1<<(e + 1))-1) & ~((1<<s) - 1)
     return (value & mask)
 
 def is_present(addr):
@@ -188,7 +188,7 @@ def is_nx(addr):
     return (addr & (1<<63)) != 0
 
 def get_pdp_base(addr):
-    return extract_no_shift(addr, 12, 52)
+    return extract_no_shift(addr, 12, 51)
 
 def is_one_gig(addr):
     return (addr >> 0x7) & 0x1
