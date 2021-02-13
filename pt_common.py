@@ -1,4 +1,5 @@
 import gdb
+from collections import namedtuple
 
 class bcolors:
     RED     = '\033[41m'
@@ -29,6 +30,8 @@ def make_canonical(va):
     mask = ((((2**64)-1) >> 47) * bit) << 47
     return va | mask
 
+PagePrintSettings = namedtuple('PagePrintSettings', ['va_len', 'page_size_len'])
+
 class Page():
     def __init__(self):
         self.va = None
@@ -40,8 +43,8 @@ class Page():
         self.wb = None
         self.uc = None
 
-    def __str__(self):
-        s = f"{hex(self.va)} + {hex(self.page_size)} | W:{int(self.w)} X:{int(self.x)} S:{int(self.s)} UC:{int(self.uc)} WB:{int(self.wb)}"
-        return s
-
-
+def page_to_str(page: Page, conf: PagePrintSettings):
+    fmt = f"{{:>{conf.va_len}}} : {{:>{conf.page_size_len}}}"
+    varying_str = fmt.format(hex(page.va), hex(page.page_size))
+    s = f"{varying_str} | W:{int(page.w)} X:{int(page.x)} S:{int(page.s)} UC:{int(page.uc)} WB:{int(page.wb)}"
+    return s

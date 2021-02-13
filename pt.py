@@ -170,7 +170,15 @@ class PageTableDump(gdb.Command):
                 for func in filters:
                     res = res and func(p)
                 return res
-            page_ranges = filter(apply_filters, page_ranges)
+            page_ranges = list(filter(apply_filters, page_ranges))
+
+        # Compute max len for these varying-len strings in order to print as tabular.
+        max_va_len = 0
+        max_page_size_len = 0
+        for page in page_ranges:
+            max_va_len = max(max_va_len, len(hex(page.va)))
+            max_page_size_len = max(max_page_size_len, len(hex(page.page_size)))
+        conf = PagePrintSettings(va_len = max_va_len, page_size_len = max_page_size_len)
 
         for page in page_ranges:
             prefix = ""
@@ -178,13 +186,14 @@ class PageTableDump(gdb.Command):
                 prefix = bcolors.CYAN + " " + bcolors.ENDC
             elif page.s:
                 prefix = bcolors.MAGENTA + " " + bcolors.ENDC
+
             if page.x and page.w:
-                print(prefix + bcolors.BLUE + " " + str(page) + bcolors.ENDC)
+                print(prefix + bcolors.BLUE + " " + page_to_str(page, conf) + bcolors.ENDC)
             elif page.w and not page.x:
-                print(prefix + bcolors.GREEN + " " + str(page) + bcolors.ENDC)
+                print(prefix + bcolors.GREEN + " " + page_to_str(page, conf) + bcolors.ENDC)
             elif page.x:
-                print(prefix + bcolors.RED + " " + str(page) + bcolors.ENDC)
+                print(prefix + bcolors.RED + " " + page_to_str(page, conf) + bcolors.ENDC)
             else:
-                print(prefix + " " + str(page))
+                print(prefix + " " + page_to_str(page, conf))
 
 PageTableDump()
