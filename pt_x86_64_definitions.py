@@ -153,13 +153,6 @@ def create_page_from_pdpe(pdpe: PDP_Entry) -> Page:
     page.wb = pdpe.writeback
     return page
 
-def extract(value, s, e):
-    return extract_no_shift(value, s, e) >> s
-
-def extract_no_shift(value, s, e):
-    mask = ((1<<(e + 1))-1) & ~((1<<s) - 1)
-    return (value & mask)
-
 def is_present(addr):
     return (addr & 0x1) != 0
 
@@ -204,4 +197,7 @@ def is_global(addr):
 
 def is_pat(addr):
     return (addr >> 12) & 0x1
+
+def rwxs_semantically_similar(p1: Page, p2: Page) -> bool:
+    return p1.w == p2.w and p1.x == p2.x and p1.s == p2.s and p1.wb == p2.wb and p1.uc == p2.uc
 

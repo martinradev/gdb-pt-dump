@@ -1,0 +1,135 @@
+from pt_common import *
+
+PT_AARCH64_SMALL_PAGE = 4096
+PT_AARCH64_BIG_PAGE   = 64 * 1024
+
+class Aarch64_Block():
+    def __init__(self, va, size, xn, pxn, permissions):
+        self.va = va
+        self.page_size = size
+        self.xn = xn
+        self.pxn = pxn
+        self.permissions = permissions
+
+class Aarch64_Table():
+    def __init__(self, pa, va, lvl, pxn, permissions):
+        self.va = va
+        self.pa = pa
+        self.lvl = lvl
+        self.permissions = permissions
+        self.pxn = pxn
+
+def aarch64_semantically_similar(p1: Aarch64_Block, p2: Aarch64_Block) -> bool:
+    return p1.xn == p2.xn and p1.pxn == p2.pxn and p1.permissions == p2.permissions
+
+def aarch64_parse_entries(tbl, as_size, granule, lvl):
+    # lvl starts from one to be in sync with the armv7 docs
+    entries = read_page(tbl.pa) if granule == PT_AARCH64_SMALL_PAGE else read_64k_page(tbl.pa)
+    tables = []
+    blocks = []
+    for i, pa in enumerate(entries):
+        is_valid = bool(pa & 0x1)
+        if is_valid:
+            bit1 = extract(pa, 1, 1)
+            if lvl == 3 and bit1 == 0: # `bit1 == 0` means invalid at lvl 3
+                continue
+            is_block_or_page = (lvl <= 2 and bit1 == 0) or (bit1 == 1 and lvl == 3)
+            is_table = (not is_block_or_page)
+            address_contrib = (i << (as_size - 9 * tbl.lvl))
+            child_va = tbl.va | address_contrib
+            if is_table:
+                next_level_address = extract_no_shift(pa, 12, 39)
+                permissions = extract(pa, 61, 62)
+                pxn = extract(pa, 59, 59) == 0x1
+                tables.append(Aarch64_Table(next_level_address, child_va, tbl.lvl + 1, pxn, permissions))
+            else:
+                xn = extract(pa, 54, 54) == 0x1
+                pxn = extract(pa, 53, 53) == 0x1
+                permissions = extract(pa, 6, 7)
+                # TODO: handle 64k page size
+                size = 2 ** (as_size - lvl * 9)
+                blocks.append(Aarch64_Block(child_va, size, xn, pxn, permissions))
+    return tables, blocks
+
+def arm_traverse_table(pt_addr, as_size, granule_size, leading_bit):
+    root = Aarch64_Table(pt_addr, 0, 1, None, None)
+    tables_lvl1, blocks_lvl1 = aarch64_parse_entries(root, as_size, granule_size, lvl=1)
+
+    tables_lvl2 = []
+    blocks_lvl2 = []
+    for tmp_tb in tables_lvl1:
+        tmp_tables, tmp_blocks = aarch64_parse_entries(tmp_tb, as_size, granule_size, lvl=2)
+        tables_lvl2.extend(tmp_tables)
+        blocks_lvl2.extend(tmp_blocks)
+
+    tables_lvl3 = []
+    blocks_lvl3 = []
+    for tmp_tb in tables_lvl2:
+        tmp_tables, tmp_blocks = aarch64_parse_entries(tmp_tb, as_size, granule_size, lvl=3)
+        tables_lvl3.extend(tmp_tables)
+        blocks_lvl3.extend(tmp_blocks)
+
+    all_blocks = blocks_lvl1 + blocks_lvl2 + blocks_lvl3
+
+    if leading_bit == 1:
+        for block in all_blocks:
+            block.va = block.va | (((1 << 64) - 1) ^ ((1 << as_size) - 1))
+
+    return all_blocks
+
+def parse_and_print_aarch64_table(cache, filters, save):
+    tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("long")))
+    tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("long")))
+    tcr = int(gdb.parse_and_eval("$TCR_EL1").cast(gdb.lookup_type("long")))
+
+    physical_as = extract(tcr, 32, 34)
+    if tb0 in cache:
+        all_blocks_0 = cache[tb0]
+    else:
+        tb0 = extract_no_shift(tb0, 10, 47)
+        tb0_granule_size = PT_AARCH64_SMALL_PAGE if extract(tcr, 14, 14) == 0 else PT_AARCH64_BIG_PAGE
+        tb0_sz = 64 - extract(tcr, 0, 5)
+        tb0_depth = int((tb0_sz - 12) / 9) # TODO: this assumes page is 4k
+        all_blocks_0 = arm_traverse_table(tb0, tb0_sz, tb0_granule_size, 0)
+        all_blocks_0 = optimize([], [], all_blocks_0, aarch64_semantically_similar)
+
+    if tb1 in cache:
+        all_blocks_1 = cache[tb1]
+    else:
+        tb1 = extract_no_shift(tb1, 10, 47)
+        tb1_granule_size = PT_AARCH64_SMALL_PAGE if extract(tcr, 30, 30) == 0 else PT_AARCH64_BIG_PAGE
+        tb1_sz = 64 - extract(tcr, 16, 21)
+        tb1_depth = int((tb1_sz - 12) / 9) # TODO: this assumes the page is 4k
+        all_blocks_1 = arm_traverse_table(tb1, tb1_sz, tb1_granule_size, 1)
+        all_blocks_1 = optimize([], [], all_blocks_1, aarch64_semantically_similar)
+
+    # TODO: Consider the top-byte ignore rules
+    # TODO: Consider EPDs
+
+    if save:
+        cache[tb0] = all_blocks_0
+        cache[tb1] = all_blocks_1
+
+    all_blocks = all_blocks_0 + all_blocks_1
+
+    max_va_len, max_page_size_len = compute_max_str_len(all_blocks)
+    
+    fmt = f"{{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
+    varying_str = fmt.format("Address", "Length")
+    print(bcolors.BLUE + varying_str + "  User space " + "   Kernel space " + bcolors.ENDC)
+    for block in all_blocks:
+        uspace_writeable = block.permissions == 0b01
+        kspace_writeable = block.permissions == 0b01 or block.permissions == 0b00
+        uspace_readable = block.permissions == 0b11 or block.permissions == 0b01
+        kspace_readable = True
+        uspace_executable = (not block.xn) and uspace_readable
+        kspace_executable = not block.pxn
+        delim = bcolors.YELLOW + " " + bcolors.ENDC
+        varying_str = fmt.format(hex(block.va), hex(block.page_size))
+        uspace_color = select_color(uspace_writeable, uspace_executable, uspace_readable)
+        uspace_str = uspace_color + f" R:{int(uspace_readable)} W:{int(uspace_writeable)} X:{int(uspace_executable)} " + bcolors.ENDC
+        kspace_color = select_color(kspace_writeable, kspace_executable, kspace_readable)
+        kspace_str = kspace_color + f" R:{int(kspace_readable)} W:{int(kspace_writeable)} X:{int(kspace_executable)} " + bcolors.ENDC
+        s = f"{varying_str} " + delim + uspace_str + delim + kspace_str
+        print(s)
+
