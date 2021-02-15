@@ -98,7 +98,7 @@ class PageTableDump(gdb.Command):
             return
 
         if self.arch == SupportedArch.aarch64:
-            parse_and_print_aarch64_table(self.cache, None, args.save)
+            parse_and_print_aarch64_table(self.cache, args)
         elif self.arch == SupportedArch.x86_64:
             pt_addr = None
             if args.addr:
@@ -116,9 +116,7 @@ class PageTableDump(gdb.Command):
             if args.filter:
                 filters = []
                 for f in args.filter:
-                    if f == "wx":
-                        filters.append(lambda p: p.x and p.w)
-                    elif f == "w":
+                    if f == "w":
                         filters.append(lambda p: p.w)
                     elif f == "_w":
                         filters.append(lambda p: not p.w)

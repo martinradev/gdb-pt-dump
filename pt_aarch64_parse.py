@@ -77,7 +77,7 @@ def arm_traverse_table(pt_addr, as_size, granule_size, leading_bit):
 
     return all_blocks
 
-def parse_and_print_aarch64_table(cache, filters, save):
+def parse_and_print_aarch64_table(cache, args):
     tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("long")))
     tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("long")))
     tcr = int(gdb.parse_and_eval("$TCR_EL1").cast(gdb.lookup_type("long")))
@@ -106,11 +106,96 @@ def parse_and_print_aarch64_table(cache, filters, save):
     # TODO: Consider the top-byte ignore rules
     # TODO: Consider EPDs
 
-    if save:
+    if args.save:
         cache[tb0] = all_blocks_0
         cache[tb1] = all_blocks_1
 
+    def is_user_readable(block):
+        return block.permissions == 0b11 or block.permissions == 0b01
+
+    def is_kernel_readable(block):
+        return True
+
+    def is_user_writeable(block):
+        return block.permissions == 0b01
+
+    def is_kernel_writeable(block):
+        return block.permissions == 0b01 or block.permissions == 0b00
+
+    def is_user_executable(block):
+        return  (not block.xn) and is_user_readable(block)
+
+    def is_kernel_executable(block):
+        return not block.pxn
+
+    # First go through the `u` and `s` filters
+    filters = []
+    if args.filter:
+        include_user = True
+        include_kernel = True
+        for f in args.filter:
+            if f == "u":
+                include_user = True
+                include_kernel = False
+            elif f == "s":
+                include_user = False
+                include_kernel = True
+
+        for f in args.filter:
+            if f == "w":
+                if include_kernel and not include_user:
+                    filters.append(is_kernel_writeable)
+                elif include_user and not include_kernel:
+                    filters.append(is_user_writeable)
+                elif include_user and include_kernel:
+                    filters.append(lambda p: is_kernel_writeable(p) or is_user_writeable(p))
+                else:
+                    raise Exception(f"Unknown filter: {f}")
+            elif f == "x":
+                if include_kernel and not include_user:
+                    filters.append(is_kernel_executable)
+                elif include_user and not include_kernel:
+                    filters.append(is_user_executable)
+                elif include_user and include_kernel:
+                    filters.append(lambda p: is_kernel_executable(p) or is_user_executable(p))
+                else:
+                    raise Exception(f"Unknown filter: {f}")
+            elif f == "w|x" or f == "x|w":
+                l_kernel = lambda p: is_kernel_writeable(p) or is_kernel_executable(p)
+                l_user = lambda p: is_user_writeable(p) or is_user_executable(p)
+                if include_kernel and not include_user:
+                    filters.append(l_kernel)
+                elif include_user and not include_kernel:
+                    filters.append(l_user)
+                elif include_user and include_kernel:
+                    filters.append(lambda p: l_user(p) or l_kernel(p))
+                else:
+                    raise Exception(f"Unknown filter: {f}")
+            elif f == "ro":
+                l_kernel = lambda p: (not is_kernel_writeable(p) and not is_kernel_executable(p)) and is_kernel_readable(p)
+                l_user = lambda p: (not is_user_writeable(p) and not is_user_executable(p)) and is_user_readable(p)
+                if include_kernel and not include_user:
+                    filters.append(l_kernel)
+                elif include_user and not include_kernel:
+                    filters.append(l_user)
+                elif include_kernel and include_user:
+                    filters.append(lambda p: l_user(p) or l_kernel(p))
+                else:
+                    raise Exception(f"Unknown filter: {f}")
+            elif f == "u" or f == "s":
+                continue
+            else:
+                print(f"Unknown filter: {f}")
+                return
+
+    def apply_filters(p):
+        res = True
+        for func in filters:
+            res = res and func(p)
+        return res
+
     all_blocks = all_blocks_0 + all_blocks_1
+    all_blocks = list(filter(apply_filters, all_blocks))
 
     max_va_len, max_page_size_len = compute_max_str_len(all_blocks)
     
@@ -118,12 +203,12 @@ def parse_and_print_aarch64_table(cache, filters, save):
     varying_str = fmt.format("Address", "Length")
     print(bcolors.BLUE + varying_str + "  User space " + "   Kernel space " + bcolors.ENDC)
     for block in all_blocks:
-        uspace_writeable = block.permissions == 0b01
-        kspace_writeable = block.permissions == 0b01 or block.permissions == 0b00
-        uspace_readable = block.permissions == 0b11 or block.permissions == 0b01
-        kspace_readable = True
-        uspace_executable = (not block.xn) and uspace_readable
-        kspace_executable = not block.pxn
+        uspace_writeable = is_user_writeable(block)
+        kspace_writeable = is_kernel_writeable(block)
+        uspace_readable = is_user_readable(block)
+        kspace_readable = is_kernel_readable(block)
+        uspace_executable = is_user_executable(block)
+        kspace_executable = is_kernel_executable(block)
         delim = bcolors.YELLOW + " " + bcolors.ENDC
         varying_str = fmt.format(hex(block.va), hex(block.page_size))
         uspace_color = select_color(uspace_writeable, uspace_executable, uspace_readable)
