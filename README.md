@@ -21,11 +21,17 @@ For details, just do `help pt` in gdb.
 
 ## Examples
 
-![Write or Executable](example_pictures/w_or_x.jpg "Write or Executable")
+![x86_64: Only user space pages](example_pictures/x86_64_user_space.jpg "x86_64 only user space")
 
-![User mappings](example_pictures/user.jpg "User mappings")
+![x86_64: Only executable pages](example_pictures/x86_64_exec_filter.jpg "x86_64 only executable")
 
-![More filters](example_pictures/more.jpg "More filters")
+![aarch64: User space accessible pages](example_pictures/aarch64_user.jpg "Aarch64 user space accessible")
+
+![aarch64: write or executable pages](example_pictures/aarch64_w_or_x.jpg "Aarch64 write or executable pages")
+
+![aarch64: only executable pages](example_pictures/aarch64_x.jpg "Aarch64 only executable pages")
+
+![Saved page tables](example_pictures/cache_list.jpg "Show saved page tables")
 
 ## Possible issues
 
@@ -34,4 +40,5 @@ Thus, the page table address would need to be retrieved in some other way.
 
 ## Supported architectures
 
-Currently, only `x86-64` is supported but `aarch64` is underway.
+Only `x86-64` and `aarch64` supported.
+There are still some todos left for `aarch64`.
