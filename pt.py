@@ -59,13 +59,7 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-clear", action="store_true")
         self.parser.add_argument("-filter", nargs="+")
         self.cache = dict()
-        arch = gdb.execute("show architecture", to_string = True)
-        if "aarch64" in arch:
-            self.arch = SupportedArch.aarch64
-        elif "x86-64" in arch:
-            self.arch = SupportedArch.x86_64
-        else:
-            raise Exception(f"Unknown arch. Message: {arch}")
+        self.arch = None
 
     def query(self, addr, query_from_cache = False):
         if query_from_cache == True and addr in self.cache:
@@ -96,6 +90,15 @@ class PageTableDump(gdb.Command):
         if args.clear:
             self.cache = dict()
             return
+
+        if self.arch == None:
+            arch = gdb.execute("show architecture", to_string = True)
+            if "aarch64" in arch:
+                self.arch = SupportedArch.aarch64
+            elif "x86-64" in arch:
+                self.arch = SupportedArch.x86_64
+            else:
+                raise Exception(f"Unknown arch. Message: {arch}")
 
         if self.arch == SupportedArch.aarch64:
             parse_and_print_aarch64_table(self.cache, args)
