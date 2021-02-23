@@ -57,23 +57,12 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-save", action="store_true")
         self.parser.add_argument("-list", action="store_true")
         self.parser.add_argument("-clear", action="store_true")
+        self.parser.add_argument("-ss", nargs=1, type=lambda s: str(s))
+        self.parser.add_argument("-s8", nargs=1, type=lambda s: int(s, 0))
+        self.parser.add_argument("-s4", nargs=1, type=lambda s: int(s, 0))
         self.parser.add_argument("-filter", nargs="+")
         self.cache = dict()
         self.arch = None
-
-    def query(self, addr, query_from_cache = False):
-        if query_from_cache == True and addr in self.cache:
-            return self.cache[addr]
-
-        pml4es = parse_pml4(addr)
-        pdpes = parse_pml4es(pml4es)
-        pdes, one_gig_pages = parse_pdpes(pdpes)
-        ptes, two_mb_pages = parse_pdes(pdes)
-        small_pages = []
-        for pte in ptes:
-            small_pages.append(create_page_from_pte(pte))
-        page_ranges = optimize(one_gig_pages, two_mb_pages, small_pages, rwxs_semantically_similar)
-        return page_ranges
 
     def print_cache(self):
         print("Cache:")
@@ -100,80 +89,37 @@ class PageTableDump(gdb.Command):
             else:
                 raise Exception(f"Unknown arch. Message: {arch}")
 
+        to_search = None
+        if args.ss:
+            to_search = args.ss[0].encode("ascii")
+        elif args.s8:
+            to_search = args.s8[0].to_bytes(8, 'little')
+        elif args.s4:
+            to_search = args.s4[0].to_bytes(4, 'little')
+
+        should_print = to_search == None
+        page_ranges = None
+
         if self.arch == SupportedArch.aarch64:
-            parse_and_print_aarch64_table(self.cache, args)
+            page_ranges = parse_and_print_aarch64_table(self.cache, args, should_print)
         elif self.arch == SupportedArch.x86_64:
-            pt_addr = None
-            if args.addr:
-                pt_addr = int(args.addr[0], 16)
-            else:
-                pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("long")))
+            page_ranges = parse_and_print_x86_64_table(self.cache, args, should_print)
 
-            page_ranges = self.query(pt_addr, True)
-
-            # Cache the page table if caching is set.
-            # Caching happens before the filter is applied.
-            if args.save:
-                self.cache[pt_addr] = page_ranges
-
-            if args.filter:
-                filters = []
-                for f in args.filter:
-                    if f == "w":
-                        filters.append(lambda p: p.w)
-                    elif f == "_w":
-                        filters.append(lambda p: not p.w)
-                    elif f == "x":
-                        filters.append(lambda p: p.x)
-                    elif f == "_x":
-                        filters.append(lambda p: not p.x)
-                    elif f == "w|x" or f == "x|w":
-                        filters.append(lambda p: p.x or p.w)
-                    elif f == "u" or f == "_s":
-                        filters.append(lambda p: not p.s)
-                    elif f == "s" or f == "_u":
-                        filters.append(lambda p: p.s)
-                    elif f == "ro":
-                        filters.append(lambda p: not p.x and not p.w)
-                    elif f == "wb":
-                        filters.append(lambda p: p.wb)
-                    elif f == "_wb":
-                        filters.append(lambda p: not p.wb)
-                    elif f == "uc":
-                        filters.append(lambda p: p.uc)
-                    elif f == "_uc":
-                        filters.append(lambda p: not p.uc)
-                    else:
-                        print(f"Unknown filter: {f}")
-                        return
-
-                def apply_filters(p):
-                    res = True
-                    for func in filters:
-                        res = res and func(p)
-                    return res
-                page_ranges = list(filter(apply_filters, page_ranges))
-
-            # Compute max len for these varying-len strings in order to print as tabular.
-            max_va_len, max_page_size_len = compute_max_str_len(page_ranges)
-            conf = PagePrintSettings(va_len = max_va_len, page_size_len = max_page_size_len)
-            fmt = f"  {{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
-            varying_str = fmt.format("Address", "Length")
-            print(bcolors.BLUE + varying_str + "   Permissions          " + bcolors.ENDC)
-            for page in page_ranges:
-                prefix = ""
-                if not page.s:
-                    prefix = bcolors.CYAN + " " + bcolors.ENDC
-                elif page.s:
-                    prefix = bcolors.MAGENTA + " " + bcolors.ENDC
-
-                if page.x and page.w:
-                    print(prefix + bcolors.BLUE + " " + page_to_str(page, conf) + bcolors.ENDC)
-                elif page.w and not page.x:
-                    print(prefix + bcolors.GREEN + " " + page_to_str(page, conf) + bcolors.ENDC)
-                elif page.x:
-                    print(prefix + bcolors.RED + " " + page_to_str(page, conf) + bcolors.ENDC)
-                else:
-                    print(prefix + " " + page_to_str(page, conf))
+        if to_search and page_ranges:
+            th = gdb.selected_inferior()
+            for range in page_ranges:
+                try:
+                    data = th.read_memory(range.va, range.page_size).tobytes()
+                    idx = 0
+                    while True:
+                        idx = data.find(to_search, idx)
+                        if idx != -1:
+                            print(hex(range.va + idx))
+                            idx = idx + 1
+                        else:
+                            break
+                except gdb.MemoryError:
+                    print(f"Fail: {hex(range.va)}")
+                    pass
 
 PageTableDump()

@@ -68,6 +68,11 @@ class Page():
         self.wb = None
         self.uc = None
 
+class GenericPageRangeNoAttr():
+    def __init__(self, va, size):
+        self.va = va
+        self.size = size
+
 def page_to_str(page: Page, conf: PagePrintSettings):
     fmt = f"{{:>{conf.va_len}}} : {{:>{conf.page_size_len}}}"
     varying_str = fmt.format(hex(page.va), hex(page.page_size))
@@ -117,4 +122,12 @@ def select_color(w, x, r):
         if r:
             return bcolors.LGREY
         return bcolors.BLACK
+
+def create_compound_filter(filters):
+    def apply_filters(p):
+        res = True
+        for func in filters:
+            res = res and func(p)
+        return res
+    return apply_filters
 

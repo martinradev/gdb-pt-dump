@@ -77,7 +77,7 @@ def arm_traverse_table(pt_addr, as_size, granule_size, leading_bit):
 
     return all_blocks
 
-def parse_and_print_aarch64_table(cache, args):
+def parse_and_print_aarch64_table(cache, args, should_print = True):
     tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("long")))
     tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("long")))
     tcr = int(gdb.parse_and_eval("$TCR_EL1").cast(gdb.lookup_type("long")))
@@ -188,33 +188,30 @@ def parse_and_print_aarch64_table(cache, args):
                 print(f"Unknown filter: {f}")
                 return
 
-    def apply_filters(p):
-        res = True
-        for func in filters:
-            res = res and func(p)
-        return res
-
     all_blocks = all_blocks_0 + all_blocks_1
     all_blocks = list(filter(apply_filters, all_blocks))
 
-    max_va_len, max_page_size_len = compute_max_str_len(all_blocks)
-    
-    fmt = f"{{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
-    varying_str = fmt.format("Address", "Length")
-    print(bcolors.BLUE + varying_str + "  User space " + "   Kernel space " + bcolors.ENDC)
-    for block in all_blocks:
-        uspace_writeable = is_user_writeable(block)
-        kspace_writeable = is_kernel_writeable(block)
-        uspace_readable = is_user_readable(block)
-        kspace_readable = is_kernel_readable(block)
-        uspace_executable = is_user_executable(block)
-        kspace_executable = is_kernel_executable(block)
-        delim = bcolors.YELLOW + " " + bcolors.ENDC
-        varying_str = fmt.format(hex(block.va), hex(block.page_size))
-        uspace_color = select_color(uspace_writeable, uspace_executable, uspace_readable)
-        uspace_str = uspace_color + f" R:{int(uspace_readable)} W:{int(uspace_writeable)} X:{int(uspace_executable)} " + bcolors.ENDC
-        kspace_color = select_color(kspace_writeable, kspace_executable, kspace_readable)
-        kspace_str = kspace_color + f" R:{int(kspace_readable)} W:{int(kspace_writeable)} X:{int(kspace_executable)} " + bcolors.ENDC
-        s = f"{varying_str} " + delim + uspace_str + delim + kspace_str
-        print(s)
+    if should_print:
+        max_va_len, max_page_size_len = compute_max_str_len(all_blocks)
+        
+        fmt = f"{{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
+        varying_str = fmt.format("Address", "Length")
+        print(bcolors.BLUE + varying_str + "  User space " + "   Kernel space " + bcolors.ENDC)
+        for block in all_blocks:
+            uspace_writeable = is_user_writeable(block)
+            kspace_writeable = is_kernel_writeable(block)
+            uspace_readable = is_user_readable(block)
+            kspace_readable = is_kernel_readable(block)
+            uspace_executable = is_user_executable(block)
+            kspace_executable = is_kernel_executable(block)
+            delim = bcolors.YELLOW + " " + bcolors.ENDC
+            varying_str = fmt.format(hex(block.va), hex(block.page_size))
+            uspace_color = select_color(uspace_writeable, uspace_executable, uspace_readable)
+            uspace_str = uspace_color + f" R:{int(uspace_readable)} W:{int(uspace_writeable)} X:{int(uspace_executable)} " + bcolors.ENDC
+            kspace_color = select_color(kspace_writeable, kspace_executable, kspace_readable)
+            kspace_str = kspace_color + f" R:{int(kspace_readable)} W:{int(kspace_writeable)} X:{int(kspace_executable)} " + bcolors.ENDC
+            s = f"{varying_str} " + delim + uspace_str + delim + kspace_str
+            print(s)
+
+    return all_blocks
 
