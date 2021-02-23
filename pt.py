@@ -20,17 +20,36 @@ class PageTableDump(gdb.Command):
             register (e.g. cr3).
         -filter FILTER [FILTER ...]
             Specify filters for the recorded pages.
-            Supported filters:
-            w: is writeable.
-            x: is executable
-            w|x: is writeable or executable
-            ro: read-only
-            u: user-space page
-            s: supervisor page
-            wb: write-back
-            uc: uncacheable
+            x86_64 Supported filters:
+                w: is writeable.
+                x: is executable
+                w|x: is writeable or executable
+                ro: read-only
+                u: user-space page
+                s: supervisor page
+                wb: write-back
+                uc: uncacheable
 
-            Additionally, you can invert some filters: _w, _x, _u, _s, _wb, _uc
+             aarch64 Supported filters:
+                w: is writeable.
+                x: is executable
+                w|x: is writeable or executable
+                ro: read-only
+                u: user-space page
+                s: supervisor page
+
+        -range START_ADDR END_ADDR
+            Will filter-out virtual memory ranges which start at a position in [START_ADDR, END_ADDR]
+        -has ADDR
+            Will filter-out virtual memory ranges which contain ADDR
+        -ss STRING
+            Searches for the string STRING in the ranges after filtering
+        -s8 VALUE
+            Searches for the value VALUE in the ranges after filtering
+            VALUE should fit in 8 bytes.
+        -s4 VALUE 
+            Searches for the value VALUE in the ranges after filtering
+            VALUE should fit in 4 bytes.
         -save
             Cache the recorded page table for that address after traversing the hierachy.
             This will yield speed-up when printing the page table again.
