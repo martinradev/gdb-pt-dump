@@ -68,16 +68,37 @@ class Page():
         self.wb = None
         self.uc = None
 
+    def __str__(self):
+        conf = PagePrintSettings(va_len = 18, page_size_len = 8)
+        return page_to_str(self, conf)
+
 class GenericPageRangeNoAttr():
     def __init__(self, va, size):
         self.va = va
         self.size = size
 
 def page_to_str(page: Page, conf: PagePrintSettings):
+    prefix = ""
+    if not page.s:
+        prefix = bcolors.CYAN + " " + bcolors.ENDC
+    elif page.s:
+        prefix = bcolors.MAGENTA + " " + bcolors.ENDC
+
     fmt = f"{{:>{conf.va_len}}} : {{:>{conf.page_size_len}}}"
     varying_str = fmt.format(hex(page.va), hex(page.page_size))
     s = f"{varying_str} | W:{int(page.w)} X:{int(page.x)} S:{int(page.s)} UC:{int(page.uc)} WB:{int(page.wb)}"
-    return s
+
+    res = ""
+    if page.x and page.w:
+        res = prefix + bcolors.BLUE + " " + s + bcolors.ENDC
+    elif page.w and not page.x:
+        res = prefix + bcolors.GREEN + " " + s + bcolors.ENDC
+    elif page.x:
+        res = prefix + bcolors.RED + " " + s + bcolors.ENDC
+    else:
+        res = prefix + " " + s
+
+    return res
 
 def merge_cont_pages(pages, func_semantic_sim):
     if len(pages) == 1:

@@ -114,7 +114,7 @@ class PageTableDump(gdb.Command):
                     while True:
                         idx = data.find(to_search, idx)
                         if idx != -1:
-                            print(hex(range.va + idx))
+                            print("Found " + hex(range.va + idx) + " in " + str(range))
                             idx = idx + 1
                         else:
                             break

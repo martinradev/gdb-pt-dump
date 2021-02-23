@@ -135,20 +135,7 @@ def parse_and_print_x86_64_table(cache, args, should_print = True):
         varying_str = fmt.format("Address", "Length")
         print(bcolors.BLUE + varying_str + "   Permissions          " + bcolors.ENDC)
         for page in page_ranges:
-            prefix = ""
-            if not page.s:
-                prefix = bcolors.CYAN + " " + bcolors.ENDC
-            elif page.s:
-                prefix = bcolors.MAGENTA + " " + bcolors.ENDC
-
-            if page.x and page.w:
-                print(prefix + bcolors.BLUE + " " + page_to_str(page, conf) + bcolors.ENDC)
-            elif page.w and not page.x:
-                print(prefix + bcolors.GREEN + " " + page_to_str(page, conf) + bcolors.ENDC)
-            elif page.x:
-                print(prefix + bcolors.RED + " " + page_to_str(page, conf) + bcolors.ENDC)
-            else:
-                print(prefix + " " + page_to_str(page, conf))
+            print(page_to_str(page, conf))
 
     return page_ranges
 
