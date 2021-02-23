@@ -3,6 +3,24 @@ from pt_common import *
 PT_AARCH64_SMALL_PAGE = 4096
 PT_AARCH64_BIG_PAGE   = 64 * 1024
 
+def is_user_readable(block):
+        return block.permissions == 0b11 or block.permissions == 0b01
+
+def is_kernel_readable(block):
+    return True
+
+def is_user_writeable(block):
+    return block.permissions == 0b01
+
+def is_kernel_writeable(block):
+    return block.permissions == 0b01 or block.permissions == 0b00
+
+def is_user_executable(block):
+    return  (not block.xn) and is_user_readable(block)
+
+def is_kernel_executable(block):
+    return not block.pxn
+
 class Aarch64_Block():
     def __init__(self, va, size, xn, pxn, permissions):
         self.va = va
@@ -10,6 +28,26 @@ class Aarch64_Block():
         self.xn = xn
         self.pxn = pxn
         self.permissions = permissions
+
+    def block_to_str(self, max_va_len, max_page_size_len):
+        fmt = f"{{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
+        uspace_writeable = is_user_writeable(self)
+        kspace_writeable = is_kernel_writeable(self)
+        uspace_readable = is_user_readable(self)
+        kspace_readable = is_kernel_readable(self)
+        uspace_executable = is_user_executable(self)
+        kspace_executable = is_kernel_executable(self)
+        delim = bcolors.YELLOW + " " + bcolors.ENDC
+        varying_str = fmt.format(hex(self.va), hex(self.page_size))
+        uspace_color = select_color(uspace_writeable, uspace_executable, uspace_readable)
+        uspace_str = uspace_color + f" R:{int(uspace_readable)} W:{int(uspace_writeable)} X:{int(uspace_executable)} " + bcolors.ENDC
+        kspace_color = select_color(kspace_writeable, kspace_executable, kspace_readable)
+        kspace_str = kspace_color + f" R:{int(kspace_readable)} W:{int(kspace_writeable)} X:{int(kspace_executable)} " + bcolors.ENDC
+        s = f"{varying_str} " + delim + uspace_str + delim + kspace_str
+        return s
+
+    def __str__(self):
+        return self.block_to_str(18, 8)
 
 class Aarch64_Table():
     def __init__(self, pa, va, lvl, pxn, permissions):
@@ -110,24 +148,7 @@ def parse_and_print_aarch64_table(cache, args, should_print = True):
         cache[tb0] = all_blocks_0
         cache[tb1] = all_blocks_1
 
-    def is_user_readable(block):
-        return block.permissions == 0b11 or block.permissions == 0b01
-
-    def is_kernel_readable(block):
-        return True
-
-    def is_user_writeable(block):
-        return block.permissions == 0b01
-
-    def is_kernel_writeable(block):
-        return block.permissions == 0b01 or block.permissions == 0b00
-
-    def is_user_executable(block):
-        return  (not block.xn) and is_user_readable(block)
-
-    def is_kernel_executable(block):
-        return not block.pxn
-
+    
     # First go through the `u` and `s` filters
     filters = []
     if args.filter:
@@ -189,29 +210,15 @@ def parse_and_print_aarch64_table(cache, args, should_print = True):
                 return
 
     all_blocks = all_blocks_0 + all_blocks_1
-    all_blocks = list(filter(apply_filters, all_blocks))
+    all_blocks = list(filter(create_compound_filter(filters), all_blocks))
 
     if should_print:
         max_va_len, max_page_size_len = compute_max_str_len(all_blocks)
-        
         fmt = f"{{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
         varying_str = fmt.format("Address", "Length")
         print(bcolors.BLUE + varying_str + "  User space " + "   Kernel space " + bcolors.ENDC)
         for block in all_blocks:
-            uspace_writeable = is_user_writeable(block)
-            kspace_writeable = is_kernel_writeable(block)
-            uspace_readable = is_user_readable(block)
-            kspace_readable = is_kernel_readable(block)
-            uspace_executable = is_user_executable(block)
-            kspace_executable = is_kernel_executable(block)
-            delim = bcolors.YELLOW + " " + bcolors.ENDC
-            varying_str = fmt.format(hex(block.va), hex(block.page_size))
-            uspace_color = select_color(uspace_writeable, uspace_executable, uspace_readable)
-            uspace_str = uspace_color + f" R:{int(uspace_readable)} W:{int(uspace_writeable)} X:{int(uspace_executable)} " + bcolors.ENDC
-            kspace_color = select_color(kspace_writeable, kspace_executable, kspace_readable)
-            kspace_str = kspace_color + f" R:{int(kspace_readable)} W:{int(kspace_writeable)} X:{int(kspace_executable)} " + bcolors.ENDC
-            s = f"{varying_str} " + delim + uspace_str + delim + kspace_str
-            print(s)
+            print(block.block_to_str(max_va_len, max_page_size_len))
 
     return all_blocks
 
