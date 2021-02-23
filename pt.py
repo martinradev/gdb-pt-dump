@@ -60,6 +60,8 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-ss", nargs=1, type=lambda s: str(s))
         self.parser.add_argument("-s8", nargs=1, type=lambda s: int(s, 0))
         self.parser.add_argument("-s4", nargs=1, type=lambda s: int(s, 0))
+        self.parser.add_argument("-range", nargs=2, type=lambda s: int(s, 0))
+        self.parser.add_argument("-has", nargs=1, type=lambda s: int(s, 0))
         self.parser.add_argument("-filter", nargs="+")
         self.cache = dict()
         self.arch = None

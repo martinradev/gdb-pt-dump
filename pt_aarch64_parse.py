@@ -212,6 +212,12 @@ def parse_and_print_aarch64_table(cache, args, should_print = True):
     all_blocks = all_blocks_0 + all_blocks_1
     all_blocks = list(filter(create_compound_filter(filters), all_blocks))
 
+    if args.range:
+        all_blocks = list(filter(lambda page: page.va >= args.range[0] and page.va <= args.range[1], all_blocks))
+
+    if args.has:
+        all_blocks = list(filter(lambda page: args.has[0] >= page.va and args.has[0] <= page.va + page.page_size, all_blocks))
+
     if should_print:
         max_va_len, max_page_size_len = compute_max_str_len(all_blocks)
         fmt = f"{{:>{max_va_len}}} : {{:>{max_page_size_len}}}"

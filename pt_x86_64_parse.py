@@ -127,6 +127,12 @@ def parse_and_print_x86_64_table(cache, args, should_print = True):
         ff = create_compound_filter(filters)
         page_ranges = list(filter(ff, page_ranges))
 
+    if args.range:
+        page_ranges = list(filter(lambda page: page.va >= args.range[0] and page.va <= args.range[1], page_ranges))
+
+    if args.has:
+        page_ranges = list(filter(lambda page: args.has[0] >= page.va and args.has[0] <= page.va + page.page_size, page_ranges))
+
     if should_print:
         # Compute max len for these varying-len strings in order to print as tabular.
         max_va_len, max_page_size_len = compute_max_str_len(page_ranges)
