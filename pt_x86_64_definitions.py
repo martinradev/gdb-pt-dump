@@ -129,6 +129,8 @@ def create_page_from_pte(pte: PT_Entry) -> Page:
     page.s = pte.supervisor
     page.uc = not pte.cacheable
     page.wb = pte.writeback
+    page.phys = [pte.pt]
+    page.sizes = [page.page_size]
     return page
 
 def create_page_from_pde(pde: PD_Entry) -> Page:
@@ -140,6 +142,8 @@ def create_page_from_pde(pde: PD_Entry) -> Page:
     page.s = pde.supervisor
     page.uc = not pde.cacheable
     page.wb = pde.writeback
+    page.phys = [pde.pt]
+    page.sizes = [page.page_size]
     return page
 
 def create_page_from_pdpe(pdpe: PDP_Entry) -> Page:
@@ -151,6 +155,8 @@ def create_page_from_pdpe(pdpe: PDP_Entry) -> Page:
     page.s = pdpe.supervisor
     page.uc = not pdpe.cacheable
     page.wb = pdpe.writeback
+    page.phys = [pdpe.pd]
+    page.sizes = [page.page_size]
     return page
 
 def is_present(addr):

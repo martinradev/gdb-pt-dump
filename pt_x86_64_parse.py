@@ -1,74 +1,74 @@
 from pt_x86_64_definitions import *
 from pt_common import *
 
-def parse_pml4(addr):
+def parse_pml4(phys_mem, addr):
     entries = []
-    values = read_page(addr)
+    values = read_page(phys_mem, addr)
     for u, value in enumerate(values):
         if (value & 0x1) != 0: # Page must be present
             entry = PML4_Entry(value, u)
             entries.append(entry)
     return entries
 
-def parse_pml4es(pml4es):
+def parse_pml4es(phys_mem, pml4es):
     entries = []
     for pml4e in pml4es:
-        pdpe = parse_pdp(pml4e)
+        pdpe = parse_pdp(phys_mem, pml4e)
         entries.extend(pdpe)
     return entries
 
-def parse_pdp(pml4e):
+def parse_pdp(phys_mem, pml4e):
     entries = []
-    values = read_page(pml4e.pdp)
+    values = read_page(phys_mem, pml4e.pdp)
     for u, value in enumerate(values):
         if (value & 0x1) != 0:
             entry = PDP_Entry(value, pml4e.virt_part, u)
             entries.append(entry)
     return entries
 
-def parse_pd(pdpe):
-    entries = []
-    values = read_page(pdpe.pd)
-    for u, value in enumerate(values):
-        if (value & 0x1) != 0:
-            entry = PD_Entry(value, pdpe.virt_part, u)
-            entries.append(entry)
-    return entries
-
-def parse_pdpes(pdpes):
+def parse_pdpes(phys_mem, pdpes):
     entries = []
     pages = []
     for pdpe in pdpes:
         if pdpe.one_gig == False:
-            pdes = parse_pd(pdpe)
+            pdes = parse_pd(phys_mem, pdpe)
             entries.extend(pdes)
         else:
             page = create_page_from_pdpe(pdpe)
             one_gig_pages.append(page)
     return entries, pages
 
-def parse_pt(pde):
+def parse_pd(phys_mem, pdpe):
     entries = []
-    values = read_page(pde.pt)
+    values = read_page(phys_mem, pdpe.pd)
     for u, value in enumerate(values):
         if (value & 0x1) != 0:
-            entry = PT_Entry(value, pde.virt_part, u)
+            entry = PD_Entry(value, pdpe.virt_part, u)
             entries.append(entry)
     return entries
 
-def parse_pdes(pdes):
+def parse_pdes(phys_mem, pdes):
     entries = []
     pages = []
     for pde in pdes:
         if pde.two_mb == False:
-            ptes = parse_pt(pde)
+            ptes = parse_pt(phys_mem, pde)
             entries.extend(ptes)
         else:
             page = create_page_from_pde(pde)
             pages.append(page)
     return entries, pages
 
-def parse_and_print_x86_64_table(cache, args, should_print = True):
+def parse_pt(phys_mem, pde):
+    entries = []
+    values = read_page(phys_mem, pde.pt)
+    for u, value in enumerate(values):
+        if (value & 0x1) != 0:
+            entry = PT_Entry(value, pde.virt_part, u)
+            entries.append(entry)
+    return entries
+
+def parse_and_print_x86_64_table(cache, phys_mem, args, should_print = True):
     pt_addr = None
     if args.addr:
         pt_addr = int(args.addr[0], 16)
@@ -79,10 +79,10 @@ def parse_and_print_x86_64_table(cache, args, should_print = True):
     if pt_addr in cache:
         page_ranges = cache[pt_addr]
     else:
-        pml4es = parse_pml4(pt_addr)
-        pdpes = parse_pml4es(pml4es)
-        pdes, one_gig_pages = parse_pdpes(pdpes)
-        ptes, two_mb_pages = parse_pdes(pdes)
+        pml4es = parse_pml4(phys_mem, pt_addr)
+        pdpes = parse_pml4es(phys_mem, pml4es)
+        pdes, one_gig_pages = parse_pdpes(phys_mem, pdpes)
+        ptes, two_mb_pages = parse_pdes(phys_mem, pdes)
         small_pages = []
         for pte in ptes:
             small_pages.append(create_page_from_pte(pte))
@@ -132,6 +132,45 @@ def parse_and_print_x86_64_table(cache, args, should_print = True):
 
     if args.has:
         page_ranges = list(filter(lambda page: args.has[0] >= page.va and args.has[0] < page.va + page.page_size, page_ranges))
+
+    if args.after:
+        page_ranges = list(filter(lambda page: args.after[0] <= page.va, page_ranges))
+
+    if args.before:
+        page_ranges = list(filter(lambda page: args.before[0] > page.va, page_ranges))
+
+    if args.kaslr:
+        potential_base_filter = lambda p: p.x and p.s and p.phys[0] % (2 * 1024 * 1024) == 0
+        tmp = list(filter(potential_base_filter, page_ranges))
+        th = gdb.selected_inferior()
+        found_page = None
+        for page in tmp:
+            first_byte = th.read_memory(page.va, 1)
+            if first_byte[0] == b'\x48':
+                found_page = page
+                break
+        if found_page:
+            print("Found virtual image base:")
+            print("\tVirt: " + str(found_page))
+            print("\tPhys: " + hex(found_page.phys[0]))
+        else:
+            print("Failed to find KASLR info")
+            return
+
+        def potential_phys_map_base_filter(p):
+            # It has to be a supervisor writeable 2MiB page.
+            if not p.w or not p.s or p.phys[0] % (2 * 1024 * 1024) != 0:
+                return False
+
+            if found_page.phys[0] > p.page_size:
+                return False
+
+            # Now let's check that the kernel image is mapped at the right place.
+            virt_first_qword = th.read_memory(found_page.va, 8).tobytes()
+            physical_first_qword = th.read_memory(page.va + found_page.phys[0], 8).tobytes()
+            return virt_first_qword == physical_first_qword
+
+        tmp = list(filter(potential_phys_map_base_filter, page_ranges))
 
     if should_print:
         # Compute max len for these varying-len strings in order to print as tabular.

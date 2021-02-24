@@ -24,31 +24,22 @@ def extract_no_shift(value, s, e):
     mask = ((1<<(e + 1))-1) & ~((1<<s) - 1)
     return (value & mask)
 
-def read_pa64(addr):
-    res = gdb.execute(f"monitor xp /xg {hex(addr)}", to_string = True)
-    i = res.find(" ")
-    value = int(res[i+1:], 16)
-    return value
-
-def read_n_pa64(addr, n):
-    res = gdb.execute(f"monitor xp /{n}xg {hex(addr)}", to_string = True)
-    lines = res.split("\n")
+def read_n_pa64(phys_memory, addr, n):
+    mem = phys_memory.read(addr, n * 8)
     values = []
-    for line in lines[:-1]:
-        tokens = line.split(" ")
-        values.append(int(tokens[1], 16))
-        values.append(int(tokens[2], 16))
+    for u in range(0, len(mem), 8):
+        values.append(int.from_bytes(mem[u:u+8], 'little'))
     return values
 
-def read_arbitrary_page(addr, page_size):
+def read_arbitrary_page(phys_memory, addr, page_size):
     n = int(page_size / 8)
-    return read_n_pa64(addr, n)
+    return read_n_pa64(phys_memory, addr, n)
 
-def read_page(addr):
-    return read_arbitrary_page(addr, 4096)
+def read_page(phys_memory, addr):
+    return read_arbitrary_page(phys_memory, addr, 4096)
 
-def read_64k_page(addr):
-    return read_arbitrary_page(addr, 64 * 1024)
+def read_64k_page(phys_memory, addr):
+    return read_arbitrary_page(phys_memory, addr, 64 * 1024)
 
 def make_canonical(va, top_bit_pos = 47):
     bit = (va >> top_bit_pos) & 0x1
@@ -67,10 +58,18 @@ class Page():
         self.s = None
         self.wb = None
         self.uc = None
+        self.phys = None
+        self.sizes = None
 
     def __str__(self):
         conf = PagePrintSettings(va_len = 18, page_size_len = 8)
         return page_to_str(self, conf)
+
+    def read_memory(self, phys_mem):
+        memory = b""
+        for phys_range_start, phys_range_size in zip(self.phys, self.sizes):
+            memory += phys_mem.read(phys_range_start, phys_range_size)
+        return memory
 
 class GenericPageRangeNoAttr():
     def __init__(self, va, size):
@@ -110,6 +109,15 @@ def merge_cont_pages(pages, func_semantic_sim):
     for page in pages[1:]:
         if cur_page.va + cur_page.page_size == page.va and func_semantic_sim(cur_page, page):
             cur_page.page_size = cur_page.page_size + page.page_size
+            if cur_page.phys[-1] + cur_page.sizes[-1] == page.phys[0]:
+                # Simply extend phys as well if they are physicall contiguous
+                assert(len(page.phys) == 1)
+                assert(len(page.sizes) == 1)
+                cur_page.sizes[-1] = cur_page.sizes[-1] + page.page_size
+            else:
+                # If not, then add a new entry
+                cur_page.phys.extend(page.phys)
+                cur_page.sizes.extend(page.sizes)
         else:
             merged_pages.append(cur_page)
             cur_page = copy.copy(page)
@@ -117,11 +125,7 @@ def merge_cont_pages(pages, func_semantic_sim):
     return merged_pages 
 
 def optimize(gig_pages, mb_pages, kb_pages, func_semantic_sim):
-    #opt_pages = merge_cont_pages(sorted(kb_pages, key = lambda p: p.va))
-    # Let's not sort them since the kernel likely does the sensible thing
-    # But still let's try to merge before sorting. This will often reduce the size by a lot.
-    opt_kb_pages = merge_cont_pages(kb_pages, func_semantic_sim)
-    pages = sorted(gig_pages + mb_pages + opt_kb_pages, key = lambda p: p.va)
+    pages = sorted(gig_pages + mb_pages + kb_pages, key = lambda p: p.va)
     opt = merge_cont_pages(pages, func_semantic_sim)
     return opt
 
