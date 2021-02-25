@@ -22,12 +22,14 @@ def is_kernel_executable(block):
     return not block.pxn
 
 class Aarch64_Block():
-    def __init__(self, va, size, xn, pxn, permissions):
+    def __init__(self, va, phys, size, xn, pxn, permissions):
         self.va = va
         self.page_size = size
         self.xn = xn
         self.pxn = pxn
         self.permissions = permissions
+        self.phys = [phys]
+        self.sizes = [size]
 
     def block_to_str(self, max_va_len, max_page_size_len):
         fmt = f"{{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
@@ -46,6 +48,13 @@ class Aarch64_Block():
         s = f"{varying_str} " + delim + uspace_str + delim + kspace_str
         return s
 
+    def read_memory(self, phys_mem):
+        memory = b""
+        for phys_range_start, phys_range_size in zip(self.phys, self.sizes):
+            memory += phys_mem.read(phys_range_start, phys_range_size)
+        return memory
+
+
     def __str__(self):
         return self.block_to_str(18, 8)
 
@@ -60,9 +69,9 @@ class Aarch64_Table():
 def aarch64_semantically_similar(p1: Aarch64_Block, p2: Aarch64_Block) -> bool:
     return p1.xn == p2.xn and p1.pxn == p2.pxn and p1.permissions == p2.permissions
 
-def aarch64_parse_entries(tbl, as_size, granule, lvl):
+def aarch64_parse_entries(phys_mem, tbl, as_size, granule, lvl):
     # lvl starts from one to be in sync with the armv7 docs
-    entries = read_page(tbl.pa) if granule == PT_AARCH64_SMALL_PAGE else read_64k_page(tbl.pa)
+    entries = read_page(phys_mem, tbl.pa) if granule == PT_AARCH64_SMALL_PAGE else read_64k_page(phys_mem, tbl.pa)
     tables = []
     blocks = []
     for i, pa in enumerate(entries):
@@ -83,27 +92,28 @@ def aarch64_parse_entries(tbl, as_size, granule, lvl):
             else:
                 xn = extract(pa, 54, 54) == 0x1
                 pxn = extract(pa, 53, 53) == 0x1
+                phys_addr = extract_no_shift(pa, 12, 47)
                 permissions = extract(pa, 6, 7)
                 # TODO: handle 64k page size
                 size = 2 ** (as_size - lvl * 9)
-                blocks.append(Aarch64_Block(child_va, size, xn, pxn, permissions))
+                blocks.append(Aarch64_Block(child_va, phys_addr, size, xn, pxn, permissions))
     return tables, blocks
 
-def arm_traverse_table(pt_addr, as_size, granule_size, leading_bit):
+def arm_traverse_table(phys_mem, pt_addr, as_size, granule_size, leading_bit):
     root = Aarch64_Table(pt_addr, 0, 1, None, None)
-    tables_lvl1, blocks_lvl1 = aarch64_parse_entries(root, as_size, granule_size, lvl=1)
+    tables_lvl1, blocks_lvl1 = aarch64_parse_entries(phys_mem, root, as_size, granule_size, lvl=1)
 
     tables_lvl2 = []
     blocks_lvl2 = []
     for tmp_tb in tables_lvl1:
-        tmp_tables, tmp_blocks = aarch64_parse_entries(tmp_tb, as_size, granule_size, lvl=2)
+        tmp_tables, tmp_blocks = aarch64_parse_entries(phys_mem, tmp_tb, as_size, granule_size, lvl=2)
         tables_lvl2.extend(tmp_tables)
         blocks_lvl2.extend(tmp_blocks)
 
     tables_lvl3 = []
     blocks_lvl3 = []
     for tmp_tb in tables_lvl2:
-        tmp_tables, tmp_blocks = aarch64_parse_entries(tmp_tb, as_size, granule_size, lvl=3)
+        tmp_tables, tmp_blocks = aarch64_parse_entries(phys_mem, tmp_tb, as_size, granule_size, lvl=3)
         tables_lvl3.extend(tmp_tables)
         blocks_lvl3.extend(tmp_blocks)
 
@@ -115,7 +125,7 @@ def arm_traverse_table(pt_addr, as_size, granule_size, leading_bit):
 
     return all_blocks
 
-def parse_and_print_aarch64_table(cache, args, should_print = True):
+def parse_and_print_aarch64_table(cache, phys_mem, args, should_print = True):
     tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("long")))
     tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("long")))
     tcr = int(gdb.parse_and_eval("$TCR_EL1").cast(gdb.lookup_type("long")))
@@ -128,7 +138,7 @@ def parse_and_print_aarch64_table(cache, args, should_print = True):
         tb0_granule_size = PT_AARCH64_SMALL_PAGE if extract(tcr, 14, 14) == 0 else PT_AARCH64_BIG_PAGE
         tb0_sz = 64 - extract(tcr, 0, 5)
         tb0_depth = int((tb0_sz - 12) / 9) # TODO: this assumes page is 4k
-        all_blocks_0 = arm_traverse_table(tb0, tb0_sz, tb0_granule_size, 0)
+        all_blocks_0 = arm_traverse_table(phys_mem, tb0, tb0_sz, tb0_granule_size, 0)
         all_blocks_0 = optimize([], [], all_blocks_0, aarch64_semantically_similar)
 
     if tb1 in cache:
@@ -138,7 +148,7 @@ def parse_and_print_aarch64_table(cache, args, should_print = True):
         tb1_granule_size = PT_AARCH64_SMALL_PAGE if extract(tcr, 30, 30) == 0 else PT_AARCH64_BIG_PAGE
         tb1_sz = 64 - extract(tcr, 16, 21)
         tb1_depth = int((tb1_sz - 12) / 9) # TODO: this assumes the page is 4k
-        all_blocks_1 = arm_traverse_table(tb1, tb1_sz, tb1_granule_size, 1)
+        all_blocks_1 = arm_traverse_table(phys_mem, tb1, tb1_sz, tb1_granule_size, 1)
         all_blocks_1 = optimize([], [], all_blocks_1, aarch64_semantically_similar)
 
     # TODO: Consider the top-byte ignore rules
@@ -147,7 +157,6 @@ def parse_and_print_aarch64_table(cache, args, should_print = True):
     if args.save:
         cache[tb0] = all_blocks_0
         cache[tb1] = all_blocks_1
-
     
     # First go through the `u` and `s` filters
     filters = []

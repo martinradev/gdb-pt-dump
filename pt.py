@@ -12,9 +12,8 @@ from pt_x86_64_parse import *
 from pt_aarch64_parse import *
 
 class VMPhysMem():
-    def __init__(self, pid, hva):
+    def __init__(self, pid):
         self.pid = pid
-        self.hva = hva
         self.file = os.open(f"/proc/{pid}/mem", os.O_RDONLY)
         self.mem_size = os.fstat(self.file).st_size
 
@@ -23,7 +22,12 @@ class VMPhysMem():
             os.close(self.file)
 
     def read(self, phys_addr, len):
-        return os.pread(self.file, len, phys_addr + self.hva)
+        res = gdb.execute(f"monitor gpa2hva {hex(phys_addr)}", to_string = True)
+        try:
+            hva = int(res.split(" ")[-1], 16)
+        except:
+            raise OSError("Physical address is not accessible")
+        return os.pread(self.file, len, hva)
 
 class PageTableDump(gdb.Command):
     """
@@ -56,6 +60,10 @@ class PageTableDump(gdb.Command):
             Will filter-out virtual memory ranges which start at a position in [START_ADDR, END_ADDR]
         -has ADDR
             Will filter-out virtual memory ranges which contain ADDR
+        -before ADDR
+            Will filter-out virtual memory ranges which start before ADDR
+        -after ADDR
+            Will filter-out virtual memory ranges which start after ADDR
         -ss STRING
             Searches for the string STRING in the ranges after filtering
         -s8 VALUE
@@ -64,6 +72,9 @@ class PageTableDump(gdb.Command):
         -s4 VALUE 
             Searches for the value VALUE in the ranges after filtering
             VALUE should fit in 4 bytes.
+        -align VALUE
+            When searching, it will print out addresses which are aligned to VALUE.
+            It can be useful when searching for content in a particular SLAB.
         -save
             Cache the recorded page table for that address after traversing the hierachy.
             This will yield speed-up when printing the page table again.
@@ -111,9 +122,7 @@ class PageTableDump(gdb.Command):
         pid = int(proc.read().strip(), 10)
         proc.close()
 
-        hva = int(gdb.execute("monitor gpa2hva 0x0", to_string = True).split(" ")[-1], 16)
-
-        self.phys_mem = VMPhysMem(pid, hva)
+        self.phys_mem = VMPhysMem(pid)
 
         self.init = True
 
@@ -179,7 +188,6 @@ class PageTableDump(gdb.Command):
                 if done_searching:
                     break
                 try:
-                    #data = th.read_memory(range.va, range.page_size).tobytes()
                     data = range.read_memory(self.phys_mem)
                     idx = 0
                     while True:
