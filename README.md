@@ -1,19 +1,24 @@
 # gdb-pt-dump
 
-`gdb-pt-dump` is a gdb script to parse a guest page table and dump it to stdout in a pretty way.
-Although this is also possible via `monitor info mem`, the QEMU monitor provides less and sometimes incorrect information, and does not handle efficiently cases when many small pages are mapped.
+`gdb-pt-dump` is a gdb script to examine the address space of a QEMU-based virtual machine.
+Although this is also possible via the `monitor` and `pwndbg` interfaces, working with them is cumbersome, slow and sometimes they produce erroneous results.
 
 ## Features
 
-* Dumping a page from a specific guest physical address.
+* Dumping a page table from a specific guest physical address.
 * Merging semantically-similar contiguous memory.
-* Provide detailed architectural information: writeable, executable, U/S, cacheable, write-back.
+* Provide detailed architectural information: writeable, executable, U/S, cacheable, write-back, XN, PXN, etc
 * Cache collected information for future filtering and printing.
-* Filter page table information.
+* Filter page table information via page attributes (x, w, u, s, ...) and virtual addresses (before, after, between)
+* Search memory very fast using `/proc/QEMU_PID/mem`. Search for string, u8, u4
+  Search is applied after filter.
+* Filter-out search results by address alignment. Useful for filtering-out SLAB allocations.
+* Try to determine KASLR information by examining the address space.
+  Currently, only the virtual and physical image offsets.
 
 ## How to use
 
-The script is standalone but I hope that it eventually makes it way into `pwndbg` and/or `gef`.
+The script is standalone.
 
 For now, do `source PATH_TO_PT_DUMP/pt.py`.
 
