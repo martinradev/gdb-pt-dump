@@ -155,12 +155,13 @@ def parse_and_print_x86_64_table(cache, phys_mem, args, should_print = True):
             print("\tPhys: " + hex(found_page.phys[0]))
             first_bytes = th.read_memory(page.va, 32).tobytes()
             page_ranges_subset = filter(lambda page: not page.x and page.s and page.va % 2 * 1024 * 1024 == 0, page_ranges)
-            search_res = search_memory(phys_mem, page_ranges_subset, first_bytes, 1, 1)
-            if len(search_res) == 0:
+            search_res_iter = search_memory(phys_mem, page_ranges_subset, first_bytes, 1, 1)
+            if search_res_iter == None:
                 print("Phys map was not found")
             else:
+                search_res = next(search_res_iter)
                 print("Found phys map base:")
-                print("\tVirt: " + hex(search_res[0][0] - found_page.phys[0]) + " in " + str(search_res[0][1]))
+                print("\tVirt: " + hex(search_res[0] - found_page.phys[0]) + " in " + str(search_res[1]))
         else:
             print("Failed to find KASLR info")
 

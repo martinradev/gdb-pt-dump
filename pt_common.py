@@ -159,7 +159,6 @@ def create_compound_filter(filters):
 def search_memory(phys_mem, page_ranges, to_search, to_search_num, aligned_to):
     th = gdb.selected_inferior()
     done_searching = False
-    res = []
     for range in page_ranges:
         if done_searching:
             break
@@ -169,7 +168,7 @@ def search_memory(phys_mem, page_ranges, to_search, to_search_num, aligned_to):
             while True:
                 idx = data.find(to_search, idx)
                 if idx != -1 and idx % aligned_to == 0:
-                    res.append((range.va + idx, range))
+                    yield (range.va + idx, range)
                     idx = idx + 1
                     to_search_num = to_search_num - 1
                     if to_search_num == 0:
@@ -179,5 +178,5 @@ def search_memory(phys_mem, page_ranges, to_search, to_search_num, aligned_to):
                     break
         except (gdb.MemoryError, OSError):
             pass
-    return res
+    return None
 
