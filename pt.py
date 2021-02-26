@@ -132,7 +132,6 @@ class PageTableDump(gdb.Command):
             print(f"\t{hex(address)}")
 
     def invoke(self, arg, from_tty):
-
         if self.init == False:
             self.lazy_init()
 
@@ -156,7 +155,7 @@ class PageTableDump(gdb.Command):
                 raise Exception(f"Unknown arch. Message: {arch}")
 
         to_search = None
-        to_search_num = 0x1000
+        to_search_num = 0x100000000
         if args.ss:
             to_search = args.ss[0].encode("ascii")
             if len(args.ss) > 1:
@@ -179,30 +178,9 @@ class PageTableDump(gdb.Command):
             page_ranges = parse_and_print_x86_64_table(self.cache, self.phys_mem, args, should_print)
 
         if to_search and page_ranges:
-            th = gdb.selected_inferior()
-            done_searching = False
-            aligned_to = 1
-            if args.align:
-                aligned_to = args.align[0]
-            for range in page_ranges:
-                if done_searching:
-                    break
-                try:
-                    data = range.read_memory(self.phys_mem)
-                    idx = 0
-                    while True:
-                        idx = data.find(to_search, idx)
-                        if idx != -1 and idx % aligned_to == 0:
-                            print("Found " + hex(range.va + idx) + " in " + str(range))
-                            idx = idx + 1
-                            to_search_num = to_search_num - 1
-                            if to_search_num == 0:
-                                done_searching = True
-                                break
-                        else:
-                            break
-                except (gdb.MemoryError, OSError):
-                    # print(f"Fail: {hex(range.va)}")
-                    pass
+            aligned_to = args.align[0] if args.align else 1
+            search_results = search_memory(self.phys_mem, page_ranges, to_search, to_search_num, aligned_to)
+            for entry in search_results:
+                print("Found " + hex(entry[0]) + " in " + str(entry[1]))
 
 PageTableDump()

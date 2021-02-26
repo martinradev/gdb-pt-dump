@@ -153,24 +153,16 @@ def parse_and_print_x86_64_table(cache, phys_mem, args, should_print = True):
             print("Found virtual image base:")
             print("\tVirt: " + str(found_page))
             print("\tPhys: " + hex(found_page.phys[0]))
+            first_bytes = th.read_memory(page.va, 32).tobytes()
+            page_ranges_subset = filter(lambda page: not page.x and page.s and page.va % 2 * 1024 * 1024 == 0, page_ranges)
+            search_res = search_memory(phys_mem, page_ranges_subset, first_bytes, 1, 1)
+            if len(search_res) == 0:
+                print("Phys map was not found")
+            else:
+                print("Found phys map base:")
+                print("\tVirt: " + hex(search_res[0][0] - found_page.phys[0]) + " in " + str(search_res[0][1]))
         else:
             print("Failed to find KASLR info")
-            return
-
-        def potential_phys_map_base_filter(p):
-            # It has to be a supervisor writeable 2MiB page.
-            if not p.w or not p.s or p.phys[0] % (2 * 1024 * 1024) != 0:
-                return False
-
-            if found_page.phys[0] > p.page_size:
-                return False
-
-            # Now let's check that the kernel image is mapped at the right place.
-            virt_first_qword = th.read_memory(found_page.va, 8).tobytes()
-            physical_first_qword = th.read_memory(page.va + found_page.phys[0], 8).tobytes()
-            return virt_first_qword == physical_first_qword
-
-        tmp = list(filter(potential_phys_map_base_filter, page_ranges))
 
     if should_print:
         # Compute max len for these varying-len strings in order to print as tabular.
