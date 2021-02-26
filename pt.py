@@ -75,6 +75,8 @@ class PageTableDump(gdb.Command):
         -align VALUE
             When searching, it will print out addresses which are aligned to VALUE.
             It can be useful when searching for content in a particular SLAB.
+        -kaslr
+            Print KASLR-relevant information like the image offsets and phys map base.
         -save
             Cache the recorded page table for that address after traversing the hierachy.
             This will yield speed-up when printing the page table again.
@@ -93,6 +95,14 @@ class PageTableDump(gdb.Command):
             executable.
         `pt -addr 0x4000`
             Traverse the page table at guest physical address 0x4000. Don't save it.
+        `pt -save -kaslr`
+            Traverse page tables, save them and print kaslr information.
+        `pt -ss Linux`
+            Search for the string Linux.
+        `pt -s8 0xaabbccdd`
+            Search for the 8-byte-long value 0xaabbccdd.
+        `pt -has 0xffffffffaaf629f7`
+            Print information about the mapping which covers the address 0xffffffffaaf629f7.
     """
     def __init__(self):
         super(PageTableDump, self).__init__("pt", gdb.COMMAND_USER)
