@@ -66,6 +66,8 @@ class PageTableDump(gdb.Command):
             Will filter-out virtual memory ranges which start after ADDR
         -ss STRING
             Searches for the string STRING in the ranges after filtering
+        -sb BYTESTRING
+            Searches for the byte-string BYTESTRING in the ranges after filtering
         -s8 VALUE
             Searches for the value VALUE in the ranges after filtering
             VALUE should fit in 8 bytes.
@@ -99,6 +101,8 @@ class PageTableDump(gdb.Command):
             Traverse page tables, save them and print kaslr information.
         `pt -ss Linux`
             Search for the string Linux.
+        `pt -sb da87374107`
+            Search for the byte-string da87374107.
         `pt -s8 0xaabbccdd`
             Search for the 8-byte-long value 0xaabbccdd.
         `pt -has 0xffffffffaaf629f7`
@@ -115,6 +119,7 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-list", action="store_true")
         self.parser.add_argument("-clear", action="store_true")
         self.parser.add_argument("-ss", nargs='*', type=lambda s: str(s))
+        self.parser.add_argument("-sb", nargs='*', type=lambda s: b"".join([int(s[u:u+2], 16).to_bytes(1, 'little') for u in range(0, len(s), 2)]))
         self.parser.add_argument("-s8", nargs='*', type=lambda s: int(s, 0))
         self.parser.add_argument("-s4", nargs='*', type=lambda s: int(s, 0))
         self.parser.add_argument("-range", nargs=2, type=lambda s: int(s, 0))
@@ -170,6 +175,10 @@ class PageTableDump(gdb.Command):
             to_search = args.ss[0].encode("ascii")
             if len(args.ss) > 1:
                 to_search_num = int(args.ss[1], 0)
+        if args.sb:
+            to_search = args.sb[0]
+            if len(args.sb) > 1:
+                to_search_num = int.from_bytes(args.sb[1], 'little')
         elif args.s8:
             to_search = args.s8[0].to_bytes(8, 'little')
             if len(args.s8) > 1:
