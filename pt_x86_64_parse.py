@@ -155,7 +155,7 @@ def parse_and_print_x86_64_table(cache, phys_mem, args, should_print = True):
             print("\tPhys: " + hex(found_page.phys[0]))
             first_bytes = th.read_memory(page.va, 32).tobytes()
             page_ranges_subset = filter(lambda page: not page.x and page.s and page.va % 2 * 1024 * 1024 == 0, page_ranges)
-            search_res_iter = search_memory(phys_mem, page_ranges_subset, first_bytes, 1, 1)
+            search_res_iter = search_memory(phys_mem, page_ranges_subset, first_bytes, 1, 1, 0)
             if search_res_iter == None:
                 print("Phys map was not found")
             else:

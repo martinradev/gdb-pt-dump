@@ -74,8 +74,9 @@ class PageTableDump(gdb.Command):
         -s4 VALUE 
             Searches for the value VALUE in the ranges after filtering
             VALUE should fit in 4 bytes.
-        -align VALUE
-            When searching, it will print out addresses which are aligned to VALUE.
+        -align ALIGNMENT [OFFSET]
+            When searching, it will print out addresses which are aligned to ALIGNMENT.
+            If offset is provided, then the check would be performed as (ADDR - OFFSET) % ALIGNMENT.
             It can be useful when searching for content in a particular SLAB.
         -kaslr
             Print KASLR-relevant information like the image offsets and phys map base.
@@ -118,15 +119,15 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-save", action="store_true")
         self.parser.add_argument("-list", action="store_true")
         self.parser.add_argument("-clear", action="store_true")
-        self.parser.add_argument("-ss", nargs='*', type=lambda s: str(s))
-        self.parser.add_argument("-sb", nargs='*', type=lambda s: b"".join([int(s[u:u+2], 16).to_bytes(1, 'little') for u in range(0, len(s), 2)]))
-        self.parser.add_argument("-s8", nargs='*', type=lambda s: int(s, 0))
-        self.parser.add_argument("-s4", nargs='*', type=lambda s: int(s, 0))
+        self.parser.add_argument("-ss", nargs='+', type=lambda s: str(s))
+        self.parser.add_argument("-sb", nargs='+', type=lambda s: b"".join([int(s[u:u+2], 16).to_bytes(1, 'little') for u in range(0, len(s), 2)]))
+        self.parser.add_argument("-s8", nargs='+', type=lambda s: int(s, 0))
+        self.parser.add_argument("-s4", nargs='+', type=lambda s: int(s, 0))
         self.parser.add_argument("-range", nargs=2, type=lambda s: int(s, 0))
         self.parser.add_argument("-after", nargs=1, type=lambda s: int(s, 0))
         self.parser.add_argument("-before", nargs=1, type=lambda s: int(s, 0))
         self.parser.add_argument("-has", nargs=1, type=lambda s: int(s, 0))
-        self.parser.add_argument("-align", nargs=1, type=lambda s: int(s, 0))
+        self.parser.add_argument("-align", nargs='+', type=lambda s: int(s, 0))
         self.parser.add_argument("-kaslr", action="store_true")
         self.parser.add_argument("-filter", nargs="+")
         self.cache = dict()
@@ -198,7 +199,8 @@ class PageTableDump(gdb.Command):
 
         if to_search and page_ranges:
             aligned_to = args.align[0] if args.align else 1
-            search_results = search_memory(self.phys_mem, page_ranges, to_search, to_search_num, aligned_to)
+            aligned_offset = args.align[1] if args.align and len(args.align) == 2 else 0
+            search_results = search_memory(self.phys_mem, page_ranges, to_search, to_search_num, aligned_to, aligned_offset)
             for entry in search_results:
                 print("Found " + hex(entry[0]) + " in " + str(entry[1]))
 
