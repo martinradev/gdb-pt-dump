@@ -87,6 +87,9 @@ class PageTableDump(gdb.Command):
             List the cached page tables.
         -clear
             Clear all saved page tables.
+        -o FILE_NAME
+            Store the output from the current command to a file with name FILE_NAME.
+            This may be useful when the a lot of data is produced, e.g. full page table.
 
     Example usage:
         `pt -save -filter s w|x wb`
@@ -130,6 +133,7 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-align", nargs='+', type=lambda s: int(s, 0))
         self.parser.add_argument("-kaslr", action="store_true")
         self.parser.add_argument("-filter", nargs="+")
+        self.parser.add_argument("-o", nargs=1)
         self.cache = dict()
         self.arch = None
 
@@ -147,12 +151,7 @@ class PageTableDump(gdb.Command):
         for address in self.cache:
             print(f"\t{hex(address)}")
 
-    def invoke(self, arg, from_tty):
-        if self.init == False:
-            self.lazy_init()
-
-        args = self.parser.parse_args(arg.split())
-
+    def handle_command(self, args):
         if args.list:
             self.print_cache()
             return
@@ -203,5 +202,25 @@ class PageTableDump(gdb.Command):
             search_results = search_memory(self.phys_mem, page_ranges, to_search, to_search_num, aligned_to, aligned_offset)
             for entry in search_results:
                 print("Found " + hex(entry[0]) + " in " + str(entry[1]))
+
+    def invoke(self, arg, from_tty):
+        if self.init == False:
+            self.lazy_init()
+
+        args = self.parser.parse_args(arg.split())
+
+        saved_stdout = None
+        if args.o:
+            saved_stdout = sys.stdout
+            sys.stdout = open(args.o[0], "w+")
+
+        try:
+            self.handle_command(args)
+        except Exception as e:
+            print(e)
+        finally:
+            if saved_stdout:
+                sys.stdout.close()
+                sys.stdout = saved_stdout
 
 PageTableDump()
