@@ -157,7 +157,7 @@ def parse_and_print_aarch64_table(cache, phys_mem, args, should_print = True):
     if args.save:
         cache[tb0] = all_blocks_0
         cache[tb1] = all_blocks_1
-    
+
     # First go through the `u` and `s` filters
     filters = []
     if args.filter:
@@ -232,6 +232,22 @@ def parse_and_print_aarch64_table(cache, phys_mem, args, should_print = True):
 
     if args.before:
         all_blocks = list(filter(lambda page: args.before[0] > page.va, all_blocks))
+
+    if args.kaslr:
+        potential_base_filter = lambda p: is_kernel_executable(p) and p.phys[0] % (2 * 1024 * 1024) == 0
+        tmp = list(filter(potential_base_filter, all_blocks))
+        th = gdb.selected_inferior()
+        found_page = None
+        for page in tmp:
+            first_byte = th.read_memory(page.va, 1)
+            print(hex(page.va))
+            if first_byte[0] == b'\x4d':
+                found_page = page
+                break
+        if found_page:
+            print("Found virtual image base:")
+            print("\tVirt: " + str(found_page))
+            print("\tPhys: " + hex(found_page.phys[0]))
 
     if should_print:
         max_va_len, max_page_size_len = compute_max_str_len(all_blocks)
