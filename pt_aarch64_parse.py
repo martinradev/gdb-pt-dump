@@ -16,7 +16,7 @@ def is_kernel_writeable(block):
     return block.permissions == 0b01 or block.permissions == 0b00
 
 def is_user_executable(block):
-    return  (not block.xn) and is_user_readable(block)
+    return (not block.xn)
 
 def is_kernel_executable(block):
     return not block.pxn
@@ -59,39 +59,47 @@ class Aarch64_Block():
         return self.block_to_str(18, 8)
 
 class Aarch64_Table():
-    def __init__(self, pa, va, lvl, pxn, permissions):
+    def __init__(self, pa, va, lvl, pxn, xn, permissions):
         self.va = va
         self.pa = pa
         self.lvl = lvl
         self.permissions = permissions
         self.pxn = pxn
+        self.xn = xn
 
 def aarch64_semantically_similar(p1: Aarch64_Block, p2: Aarch64_Block) -> bool:
     return p1.xn == p2.xn and p1.pxn == p2.pxn and p1.permissions == p2.permissions
 
 def aarch64_parse_entries(phys_mem, tbl, as_size, granule, lvl):
     # lvl starts from one to be in sync with the armv7 docs
-    entries = read_page(phys_mem, tbl.pa) if granule == PT_AARCH64_SMALL_PAGE else read_64k_page(phys_mem, tbl.pa)
+    entries = None
+    try:
+        entries = read_page(phys_mem, tbl.pa) if granule == PT_AARCH64_SMALL_PAGE else read_64k_page(phys_mem, tbl.pa)
+    except Exception as e:
+        print(e)
+        return [], []
     tables = []
     blocks = []
     for i, pa in enumerate(entries):
         is_valid = bool(pa & 0x1)
         if is_valid:
             bit1 = extract(pa, 1, 1)
-            if lvl == 3 and bit1 == 0: # `bit1 == 0` means invalid at lvl 3
+            if (lvl == 4 and bit1 == 0):
                 continue
-            is_block_or_page = (lvl <= 2 and bit1 == 0) or (bit1 == 1 and lvl == 3)
+            contiguous_bit = extract(pa, 52, 52)
+            is_block_or_page = (lvl <= 3 and bit1 == 0) or lvl == 4 or contiguous_bit
             is_table = (not is_block_or_page)
             address_contrib = (i << (as_size - 9 * tbl.lvl))
             child_va = tbl.va | address_contrib
             if is_table:
-                next_level_address = extract_no_shift(pa, 12, 39)
+                next_level_address = extract_no_shift(pa, 12, 47)
                 permissions = extract(pa, 61, 62)
-                pxn = extract(pa, 59, 59) == 0x1
-                tables.append(Aarch64_Table(next_level_address, child_va, tbl.lvl + 1, pxn, permissions))
+                xn = (extract(pa, 60, 60) == 0x1) | tbl.xn
+                pxn = extract(pa, 59, 59) == 0x1 | tbl.pxn
+                tables.append(Aarch64_Table(next_level_address, child_va, tbl.lvl + 1, pxn, xn, permissions))
             else:
-                xn = extract(pa, 54, 54) == 0x1
-                pxn = extract(pa, 53, 53) == 0x1
+                xn = (extract(pa, 54, 54) == 0x1) | tbl.xn
+                pxn = (extract(pa, 53, 53) == 0x1) | tbl.pxn
                 phys_addr = extract_no_shift(pa, 12, 47)
                 permissions = extract(pa, 6, 7)
                 # TODO: handle 64k page size
@@ -100,7 +108,7 @@ def aarch64_parse_entries(phys_mem, tbl, as_size, granule, lvl):
     return tables, blocks
 
 def arm_traverse_table(phys_mem, pt_addr, as_size, granule_size, leading_bit):
-    root = Aarch64_Table(pt_addr, 0, 1, None, None)
+    root = Aarch64_Table(pt_addr, 0, 1, 0, 0, 0)
     tables_lvl1, blocks_lvl1 = aarch64_parse_entries(phys_mem, root, as_size, granule_size, lvl=1)
 
     tables_lvl2 = []
@@ -117,7 +125,14 @@ def arm_traverse_table(phys_mem, pt_addr, as_size, granule_size, leading_bit):
         tables_lvl3.extend(tmp_tables)
         blocks_lvl3.extend(tmp_blocks)
 
-    all_blocks = blocks_lvl1 + blocks_lvl2 + blocks_lvl3
+    tables_lvl4 = []
+    blocks_lvl4 = []
+    for tmp_tb in tables_lvl3:
+        tmp_tables, tmp_blocks = aarch64_parse_entries(phys_mem, tmp_tb, as_size, granule_size, lvl=4)
+        tables_lvl4.extend(tmp_tables)
+        blocks_lvl4.extend(tmp_blocks)
+
+    all_blocks = blocks_lvl1 + blocks_lvl2 + blocks_lvl3 + blocks_lvl4
 
     if leading_bit == 1:
         for block in all_blocks:
@@ -234,20 +249,24 @@ def parse_and_print_aarch64_table(cache, phys_mem, args, should_print = True):
         all_blocks = list(filter(lambda page: args.before[0] > page.va, all_blocks))
 
     if args.kaslr:
-        potential_base_filter = lambda p: is_kernel_executable(p) and p.phys[0] % (2 * 1024 * 1024) == 0
+        two_mib = 2 * 1024 * 1024
+        potential_base_filter = lambda p: is_kernel_executable(p)
         tmp = list(filter(potential_base_filter, all_blocks))
         th = gdb.selected_inferior()
         found_page = None
         for page in tmp:
-            first_byte = th.read_memory(page.va, 1)
-            print(hex(page.va))
-            if first_byte[0] == b'\x4d':
-                found_page = page
-                break
+            page_2mib_aligned_start = page.va if page.va % two_mib == 0 else (page.va & ~(two_mib - 1)) + two_mib
+            for start_addr in range(page_2mib_aligned_start, page.va + page.page_size, two_mib):
+                first_byte = th.read_memory(start_addr, 1)
+                if first_byte[0] == b'\x4d':
+                    found_page = page
+                    break
         if found_page:
             print("Found virtual image base:")
             print("\tVirt: " + str(found_page))
             print("\tPhys: " + hex(found_page.phys[0]))
+        else:
+            print("Failed to determine kaslr offsets")
 
     if should_print:
         max_va_len, max_page_size_len = compute_max_str_len(all_blocks)
