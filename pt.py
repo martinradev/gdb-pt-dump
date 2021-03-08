@@ -26,7 +26,7 @@ class VMPhysMem():
         try:
             hva = int(res.split(" ")[-1], 16)
         except:
-            raise OSError("Physical address is not accessible")
+            raise OSError(f"Physical address ({hex(phys_addr)}, +{hex(len)}) is not accessible")
         return os.pread(self.file, len, hva)
 
 class PageTableDump(gdb.Command):
@@ -217,7 +217,7 @@ class PageTableDump(gdb.Command):
         try:
             self.handle_command(args)
         except Exception as e:
-            print(e)
+            print(f"Exception: {str(e)}")
         finally:
             if saved_stdout:
                 sys.stdout.close()
