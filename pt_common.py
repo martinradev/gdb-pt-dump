@@ -100,7 +100,7 @@ def page_to_str(page: Page, conf: PagePrintSettings):
     return res
 
 def merge_cont_pages(pages, func_semantic_sim):
-    if len(pages) == 1:
+    if len(pages) <= 1:
         return pages
 
     # Here I am just going to abuse the Page structure to contain the range
