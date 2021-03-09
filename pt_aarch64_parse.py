@@ -4,7 +4,7 @@ PT_AARCH64_SMALL_PAGE = 4096
 PT_AARCH64_BIG_PAGE   = 64 * 1024
 
 def is_user_readable(block):
-        return block.permissions == 0b11 or block.permissions == 0b01
+    return block.permissions == 0b11 or block.permissions == 0b01
 
 def is_kernel_readable(block):
     return True
@@ -182,9 +182,11 @@ def parse_and_print_aarch64_table(cache, phys_mem, args, should_print = True):
             if f == "u":
                 include_user = True
                 include_kernel = False
+                filters.append(lambda p: is_user_writeable(p) or is_user_readable(p) or is_user_executable(p))
             elif f == "s":
                 include_user = False
                 include_kernel = True
+                filters.append(lambda p: is_kernel_writeable(p) or is_kernel_readable(p) or is_kernel_executable(p))
 
         for f in args.filter:
             if f == "w":
