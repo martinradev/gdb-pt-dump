@@ -1,4 +1,5 @@
 from pt_common import *
+import pt_aarch64_definitions as a64_def
 
 PT_AARCH64_SMALL_PAGE = 4096
 PT_AARCH64_BIG_PAGE   = 64 * 1024
@@ -140,12 +141,18 @@ def arm_traverse_table(phys_mem, pt_addr, as_size, granule_size, leading_bit):
 
     return all_blocks
 
+def print_stats():
+    print(a64_def.pt_tcr.check())
+
 def parse_and_print_aarch64_table(cache, phys_mem, args, should_print = True):
     tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("long")))
     tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("long")))
     tcr = int(gdb.parse_and_eval("$TCR_EL1").cast(gdb.lookup_type("long")))
 
-    physical_as = extract(tcr, 32, 34)
+    if args.info:
+        print_stats()
+        return
+
     if tb0 in cache:
         all_blocks_0 = cache[tb0]
     else:

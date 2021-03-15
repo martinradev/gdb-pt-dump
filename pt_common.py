@@ -7,7 +7,7 @@ class bcolors:
     BLUE    = '\033[44m'
     GREEN   = '\033[42m'
     CYAN    = '\033[106m'
-    MAGENTA = '\033[105m'
+    MAGENTA = '\033[45m'
     BLACK   = '\033[40m'
     YELLOW  = '\033[103m'
     LGREY   = '\033[47m'

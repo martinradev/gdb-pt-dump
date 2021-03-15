@@ -87,6 +87,8 @@ class PageTableDump(gdb.Command):
             List the cached page tables.
         -clear
             Clear all saved page tables.
+        -info
+            Print arch register information.
         -o FILE_NAME
             Store the output from the current command to a file with name FILE_NAME.
             This may be useful when the a lot of data is produced, e.g. full page table.
@@ -132,6 +134,7 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-has", nargs=1, type=lambda s: int(s, 0))
         self.parser.add_argument("-align", nargs='+', type=lambda s: int(s, 0))
         self.parser.add_argument("-kaslr", action="store_true")
+        self.parser.add_argument("-info", action="store_true")
         self.parser.add_argument("-filter", nargs="+")
         self.parser.add_argument("-o", nargs=1)
         self.cache = dict()
@@ -188,7 +191,7 @@ class PageTableDump(gdb.Command):
             if len(args.s4) > 1:
                 to_search_num = int(args.s4[1], 0)
 
-        should_print = to_search == None and not args.kaslr
+        should_print = to_search == None and not (args.kaslr or args.info)
         page_ranges = None
 
         if self.arch == SupportedArch.aarch64:
