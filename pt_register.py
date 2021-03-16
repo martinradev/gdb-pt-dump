@@ -20,6 +20,9 @@ class PT_Register_State:
         s += "-" * total + "\n"
         return s
 
+    def get_value(self, key):
+        return self.kv[key][3]
+
 class PT_Decipher_Meaning_Match:
     def __init__(self, kv):
         self.kv = kv
@@ -33,16 +36,20 @@ class PT_Register:
     def __init__(self, register, name):
         self.register = register
         self.name = name
-        self.ranges = []
+        self.ranges_dict = {}
 
     def add_range(self, name, low, high, decipher_meaning):
-        self.ranges.append(PT_Register_Range(name = name, low = low, high = high, func = decipher_meaning))
+        self.ranges_dict[name] = PT_Register_Range(name = name, low = low, high = high, func = decipher_meaning)
 
     def check(self):
-        value = int(gdb.parse_and_eval(f"${self.register}").cast(gdb.lookup_type("long")))
+        reg_value = int(gdb.parse_and_eval(f"${self.register}").cast(gdb.lookup_type("long")))
         kv = dict()
-        for r in self.ranges:
-            res = extract(value, r.low, r.high)
+        for key in self.ranges_dict:
+            r = self.ranges_dict[key]
+            res = extract(reg_value, r.low, r.high)
             kv[r.name] = (r.func(res), r.low, r.high, res)
         return PT_Register_State(self.name, kv)
+
+    def __getattr__(self, attr):
+        return self.check().get_value(str(attr))
 
