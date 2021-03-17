@@ -41,9 +41,10 @@ def read_page(phys_memory, addr):
 def read_64k_page(phys_memory, addr):
     return read_arbitrary_page(phys_memory, addr, 64 * 1024)
 
-def make_canonical(va, top_bit_pos = 47):
-    bit = (va >> top_bit_pos) & 0x1
-    mask = ((((2**64)-1) >> top_bit_pos) * bit) << top_bit_pos
+def make_canonical(va, top_bit_pos = 48):
+    shift = top_bit_pos - 1
+    bit = (va >> shift) & 0x1
+    mask = ((((2**64)-1) >> shift) * bit) << shift
     return va | mask
 
 PagePrintSettings = namedtuple('PagePrintSettings', ['va_len', 'page_size_len'])

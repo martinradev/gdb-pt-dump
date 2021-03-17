@@ -162,7 +162,7 @@ def arm_traverse_table(phys_mem, pt_addr, as_size, granule_size, leading_bit):
 
     if leading_bit == 1:
         for block in all_blocks:
-            block.va = block.va | (((1 << 64) - 1) ^ ((1 << as_size) - 1))
+            block.va = make_canonical(block.va, as_size)
             pass
 
     return all_blocks
@@ -173,7 +173,6 @@ def print_stats():
 def parse_and_print_aarch64_table(cache, phys_mem, args, should_print = True):
     tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("long")))
     tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("long")))
-    tcr = int(gdb.parse_and_eval("$TCR_EL1").cast(gdb.lookup_type("long")))
 
     if args.info:
         print_stats()
