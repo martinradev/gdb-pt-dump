@@ -162,8 +162,7 @@ def arm_traverse_table(phys_mem, pt_addr, as_size, granule_size, leading_bit):
 
     if leading_bit == 1:
         for block in all_blocks:
-            block.va = make_canonical(block.va, as_size)
-            pass
+            block.va = make_canonical(block.va | (1<<as_size), as_size+1)
 
     return all_blocks
 
