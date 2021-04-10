@@ -210,7 +210,7 @@ class PageTableDump(gdb.Command):
         if self.init == False:
             self.lazy_init()
 
-        args = self.parser.parse_args(arg.split())
+        args = self.parser.parse_args(gdb.string_to_argv(arg))
 
         saved_stdout = None
         if args.o:
