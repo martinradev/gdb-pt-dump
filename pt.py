@@ -204,7 +204,7 @@ class PageTableDump(gdb.Command):
             aligned_offset = args.align[1] if args.align and len(args.align) == 2 else 0
             search_results = search_memory(self.phys_mem, page_ranges, to_search, to_search_num, aligned_to, aligned_offset)
             for entry in search_results:
-                print("Found " + hex(entry[0]) + " in " + str(entry[1]))
+                print("Found at " + hex(entry[0]) + " in " + str(entry[1]))
 
     def invoke(self, arg, from_tty):
         if self.init == False:
