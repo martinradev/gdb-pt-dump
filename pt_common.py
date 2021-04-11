@@ -2,6 +2,12 @@ import gdb
 from collections import namedtuple
 import copy
 
+class PageTableState:
+    def __init__(self, virtual_blocks):
+        self.virtual_blocks = virtual_blocks
+
+        # Create inverse physical map
+
 class bcolors:
     RED     = '\033[41m'
     BLUE    = '\033[44m'

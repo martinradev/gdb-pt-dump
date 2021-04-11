@@ -1,5 +1,6 @@
 from pt_common import *
 import pt_aarch64_definitions as a64_def
+from pt_arch_backend import PTArchBackend
 
 PT_AARCH64_4KB_PAGE  = 4096
 PT_AARCH64_16KB_PAGE = 16 * 1024
@@ -169,138 +170,125 @@ def arm_traverse_table(phys_mem, pt_addr, as_size, granule_size, leading_bit):
 def print_stats():
     print(a64_def.pt_tcr.check())
 
-def parse_and_print_aarch64_table(cache, phys_mem, args, should_print = True):
-    tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("long")))
-    tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("long")))
+class PT_Aarch64_Backend(PTArchBackend):
+    def __init__(self, phys_mem):
+        self.phys_mem = phys_mem
 
-    if args.info:
-        print_stats()
-        return
-
-    if tb0 in cache:
-        all_blocks_0 = cache[tb0]
-    else:
-        tb0 = extract_no_shift(tb0, 10, 47)
-        tb0_granule_size = None
-        tg0 = a64_def.pt_tcr.TG0
-        if tg0 == 0b00:
-            tb0_granule_size = PT_AARCH64_4KB_PAGE 
-        elif tg0 == 0b01:
-            tb0_granule_size = PT_AARCH64_64KB_PAGE 
-        elif tg0 == 0b10:
-            tb0_granule_size = PT_AARCH64_16KB_PAGE 
+    def get_filter_is_writeable(self, has_superuser_filter, has_user_filter):
+        if has_superuser_filter == True and has_user_filter == False:
+            return lambda p: is_kernel_writeable(p)
+        elif has_superuser_filter == False and has_user_filter == True:
+            return lambda p: is_user_writeable(p)
         else:
-            raise Expcetion(f"Unknown TG0 value {tg0}")
-        tb0_sz = 64 - a64_def.pt_tcr.T0SZ
-        all_blocks_0 = arm_traverse_table(phys_mem, tb0, tb0_sz, tb0_granule_size, 0)
-        all_blocks_0 = optimize([], [], all_blocks_0, aarch64_semantically_similar)
+            return lambda p: is_kernel_writeable(p) or is_user_writeable(p)
 
-    if tb1 in cache:
-        all_blocks_1 = cache[tb1]
-    else:
-        tb1 = extract_no_shift(tb1, 10, 47)
-        tb1_granule_size = None
-        tg1 = a64_def.pt_tcr.TG1
-        if tg1 == 0b10:
-            tb1_granule_size = PT_AARCH64_4KB_PAGE 
-        elif tg1 == 0b11:
-            tb1_granule_size = PT_AARCH64_64KB_PAGE 
-        elif tg1 == 0b01:
-            tb1_granule_size = PT_AARCH64_16KB_PAGE 
+    def get_filter_is_not_writeable(self, has_superuser_filter, has_user_filter):
+        if has_superuser_filter == True and has_user_filter == False:
+            return lambda p: not is_kernel_writeable(p)
+        elif has_superuser_filter == False and has_user_filter == True:
+            return lambda p: not is_user_writeable(p)
         else:
-            raise Expcetion(f"Unknown TG1 value {tg1}")
-        tb1_sz = 64 - a64_def.pt_tcr.T1SZ
-        all_blocks_1 = arm_traverse_table(phys_mem, tb1, tb1_sz, tb1_granule_size, 1)
-        all_blocks_1 = optimize([], [], all_blocks_1, aarch64_semantically_similar)
+            return lambda p: not is_kernel_writeable(p) and not is_user_writeable(p)
 
-    # TODO: Consider the top-byte ignore rules
-    # TODO: Consider EPDs
+    def get_filter_is_executable(self, has_superuser_filter, has_user_filter):
+        if has_superuser_filter == True and has_user_filter == False:
+            return lambda p: is_kernel_executable(p)
+        elif has_superuser_filter == False and has_user_filter == True:
+            return lambda p: is_user_executable(p)
+        else:
+            return lambda p: is_user_executable(p) or is_kernel_executable(p)
 
-    if args.save:
-        cache[tb0] = all_blocks_0
-        cache[tb1] = all_blocks_1
+    def get_filter_is_not_executable(self, has_superuser_filter, has_user_filter):
+        if has_superuser_filter == True and has_user_filter == False:
+            return lambda p: not is_kernel_executable(p)
+        elif has_superuser_filter == False and has_user_filter == True:
+            return lambda p: not is_user_executable(p)
+        else:
+            return lambda p: not is_user_executable(p) and not is_kernel_executable(p)
 
-    # First go through the `u` and `s` filters
-    filters = []
-    if args.filter:
-        include_user = True
-        include_kernel = True
-        for f in args.filter:
-            if f == "u":
-                include_user = True
-                include_kernel = False
-                filters.append(lambda p: is_user_writeable(p) or is_user_readable(p) or is_user_executable(p))
-            elif f == "s":
-                include_user = False
-                include_kernel = True
-                filters.append(lambda p: is_kernel_writeable(p) or is_kernel_readable(p) or is_kernel_executable(p))
+    def get_filter_is_writeable_or_executable(self, has_superuser_filter, has_user_filter):
+        if has_superuser_filter == True and has_user_filter == False:
+            return lambda p: is_kernel_writeable(p) or is_kernel_executable(p)
+        elif has_superuser_filter == False and has_user_filter == True:
+            return lambda p: is_user_writeable(p) or is_user_executable(p)
+        else:
+            return lambda p: is_kernel_writeable(p) or is_kernel_executable(p) or \
+                                is_user_writeable(p) or is_user_executable(p)
 
-        for f in args.filter:
-            if f == "w":
-                if include_kernel and not include_user:
-                    filters.append(is_kernel_writeable)
-                elif include_user and not include_kernel:
-                    filters.append(is_user_writeable)
-                elif include_user and include_kernel:
-                    filters.append(lambda p: is_kernel_writeable(p) or is_user_writeable(p))
-                else:
-                    raise Exception(f"Unknown filter: {f}")
-            elif f == "x":
-                if include_kernel and not include_user:
-                    filters.append(is_kernel_executable)
-                elif include_user and not include_kernel:
-                    filters.append(is_user_executable)
-                elif include_user and include_kernel:
-                    filters.append(lambda p: is_kernel_executable(p) or is_user_executable(p))
-                else:
-                    raise Exception(f"Unknown filter: {f}")
-            elif f == "w|x" or f == "x|w":
-                l_kernel = lambda p: is_kernel_writeable(p) or is_kernel_executable(p)
-                l_user = lambda p: is_user_writeable(p) or is_user_executable(p)
-                if include_kernel and not include_user:
-                    filters.append(l_kernel)
-                elif include_user and not include_kernel:
-                    filters.append(l_user)
-                elif include_user and include_kernel:
-                    filters.append(lambda p: l_user(p) or l_kernel(p))
-                else:
-                    raise Exception(f"Unknown filter: {f}")
-            elif f == "ro":
-                l_kernel = lambda p: (not is_kernel_writeable(p) and not is_kernel_executable(p)) and is_kernel_readable(p)
-                l_user = lambda p: (not is_user_writeable(p) and not is_user_executable(p)) and is_user_readable(p)
-                if include_kernel and not include_user:
-                    filters.append(l_kernel)
-                elif include_user and not include_kernel:
-                    filters.append(l_user)
-                elif include_kernel and include_user:
-                    filters.append(lambda p: l_user(p) or l_kernel(p))
-                else:
-                    raise Exception(f"Unknown filter: {f}")
-            elif f == "u" or f == "s":
-                continue
+    def get_filter_is_user_page(self, has_superuser_filter, has_user_filter):
+        return lambda p: is_user_writeable(p) or is_user_readable(p) or is_user_executable(p)
+
+    def get_filter_is_superuser_page(self, has_superuser_filter, has_user_filter):
+        return lambda p: is_kernel_writeable(p) or is_kernel_readable(p) or is_kernel_executable(p)
+
+    def get_filter_is_read_only_page(self, has_superuser_filter, has_user_filter):
+        l_kernel = lambda p: (not is_kernel_writeable(p) and not is_kernel_executable(p)) and is_kernel_readable(p)
+        l_user = lambda p: (not is_user_writeable(p) and not is_user_executable(p)) and is_user_readable(p)
+        if has_superuser_filter == True and has_user_filter == False:
+            return l_kernel
+        elif has_superuser_filter == False and has_user_filter == True:
+            return l_user
+        else:
+            return lambda p: l_user(p) or l_kernel(p)
+
+    def get_filter_architecture_specific(self, filter_name, has_superuser_filter, has_user_filter):
+        raise exception(f"Uknown filter {filter_name}")
+
+    def parse_tables(self, cache, args):
+        tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("long")))
+        tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("long")))
+
+        if tb0 in cache:
+            all_blocks_0 = cache[tb0]
+        else:
+            tb0 = extract_no_shift(tb0, 10, 47)
+            tb0_granule_size = None
+            tg0 = a64_def.pt_tcr.TG0
+            if tg0 == 0b00:
+                tb0_granule_size = PT_AARCH64_4KB_PAGE
+            elif tg0 == 0b01:
+                tb0_granule_size = PT_AARCH64_64KB_PAGE
+            elif tg0 == 0b10:
+                tb0_granule_size = PT_AARCH64_16KB_PAGE
             else:
-                print(f"Unknown filter: {f}")
-                return
+                raise Expcetion(f"Unknown TG0 value {tg0}")
+            tb0_sz = 64 - a64_def.pt_tcr.T0SZ
+            all_blocks_0 = arm_traverse_table(self.phys_mem, tb0, tb0_sz, tb0_granule_size, 0)
+            all_blocks_0 = optimize([], [], all_blocks_0, aarch64_semantically_similar)
 
-    all_blocks = all_blocks_0 + all_blocks_1
-    all_blocks = list(filter(create_compound_filter(filters), all_blocks))
+        if tb1 in cache:
+            all_blocks_1 = cache[tb1]
+        else:
+            tb1 = extract_no_shift(tb1, 10, 47)
+            tb1_granule_size = None
+            tg1 = a64_def.pt_tcr.TG1
+            if tg1 == 0b10:
+                tb1_granule_size = PT_AARCH64_4KB_PAGE 
+            elif tg1 == 0b11:
+                tb1_granule_size = PT_AARCH64_64KB_PAGE 
+            elif tg1 == 0b01:
+                tb1_granule_size = PT_AARCH64_16KB_PAGE 
+            else:
+                raise Expcetion(f"Unknown TG1 value {tg1}")
+            tb1_sz = 64 - a64_def.pt_tcr.T1SZ
+            all_blocks_1 = arm_traverse_table(self.phys_mem, tb1, tb1_sz, tb1_granule_size, 1)
+            all_blocks_1 = optimize([], [], all_blocks_1, aarch64_semantically_similar)
 
-    if args.range:
-        all_blocks = list(filter(lambda page: page.va >= args.range[0] and page.va <= args.range[1], all_blocks))
+        # TODO: Consider the top-byte ignore rules
+        # TODO: Consider EPDs
 
-    if args.has:
-        all_blocks = list(filter(lambda page: args.has[0] >= page.va and args.has[0] < page.va + page.page_size, all_blocks))
+        if args.save:
+            cache[tb0] = all_blocks_0
+            cache[tb1] = all_blocks_1
 
-    if args.after:
-        all_blocks = list(filter(lambda page: args.after[0] <= page.va, all_blocks))
+        all_blocks = all_blocks_0 + all_blocks_1
 
-    if args.before:
-        all_blocks = list(filter(lambda page: args.before[0] > page.va, all_blocks))
+        return all_blocks
 
-    if args.kaslr:
+    def print_kaslr_information(self, table):
         two_mib = 2 * 1024 * 1024
         potential_base_filter = lambda p: is_kernel_executable(p)
-        tmp = list(filter(potential_base_filter, all_blocks))
+        tmp = list(filter(potential_base_filter, table))
         th = gdb.selected_inferior()
         found_page = None
         for page in tmp:
@@ -317,13 +305,15 @@ def parse_and_print_aarch64_table(cache, phys_mem, args, should_print = True):
         else:
             print("Failed to determine kaslr offsets")
 
-    if should_print:
-        max_va_len, max_page_size_len = compute_max_str_len(all_blocks)
+    def print_table(self, table):
+        max_va_len, max_page_size_len = compute_max_str_len(table)
         fmt = f"{{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
         varying_str = fmt.format("Address", "Length")
         print(bcolors.BLUE + varying_str + "  User space " + "   Kernel space " + bcolors.ENDC)
-        for block in all_blocks:
+        for block in table:
             print(block.block_to_str(max_va_len, max_page_size_len))
 
-    return all_blocks
+    def print_stats(self):
+        print_stats()
+        return
 

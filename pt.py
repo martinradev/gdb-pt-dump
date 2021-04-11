@@ -6,8 +6,8 @@ import os
 # A hack to import the other files without placing the files in the modules directory.
 dirname = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(1, dirname)
+
 from pt_common import *
-from pt_x86_64_definitions import *
 from pt_x86_64_parse import *
 from pt_aarch64_parse import *
 
@@ -138,7 +138,6 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-filter", nargs="+")
         self.parser.add_argument("-o", nargs=1)
         self.cache = dict()
-        self.arch = None
 
         # Get quick access to physical memory.
         proc = os.popen("pgrep qemu-system")
@@ -148,6 +147,15 @@ class PageTableDump(gdb.Command):
         self.phys_mem = VMPhysMem(pid)
 
         self.init = True
+
+        self.backend = None
+        arch = gdb.execute("show architecture", to_string = True)
+        if "aarch64" in arch:
+            self.backend = PT_Aarch64_Backend(self.phys_mem)
+        elif "x86-64" in arch:
+            self.backend = PT_x86_64_Backend(self.phys_mem)
+        else:
+            raise Exception(f"Unknown arch. Message: {arch}")
 
     def print_cache(self):
         print("Cache:")
@@ -162,15 +170,6 @@ class PageTableDump(gdb.Command):
         if args.clear:
             self.cache = dict()
             return
-
-        if self.arch == None:
-            arch = gdb.execute("show architecture", to_string = True)
-            if "aarch64" in arch:
-                self.arch = SupportedArch.aarch64
-            elif "x86-64" in arch:
-                self.arch = SupportedArch.x86_64
-            else:
-                raise Exception(f"Unknown arch. Message: {arch}")
 
         to_search = None
         to_search_num = 0x100000000
@@ -191,20 +190,29 @@ class PageTableDump(gdb.Command):
             if len(args.s4) > 1:
                 to_search_num = int(args.s4[1], 0)
 
-        should_print = to_search == None and not (args.kaslr or args.info)
-        page_ranges = None
+        requires_page_table_parsing = True
+        if args.info:
+            requires_page_table_parsing = False
 
-        if self.arch == SupportedArch.aarch64:
-            page_ranges = parse_and_print_aarch64_table(self.cache, self.phys_mem, args, should_print)
-        elif self.arch == SupportedArch.x86_64:
-            page_ranges = parse_and_print_x86_64_table(self.cache, self.phys_mem, args, should_print)
+        if requires_page_table_parsing:
+            page_ranges = self.backend.parse_tables(self.cache, args)
+            page_ranges = list(filter(self.parse_filter_args(args), page_ranges))
 
-        if to_search and page_ranges:
-            aligned_to = args.align[0] if args.align else 1
-            aligned_offset = args.align[1] if args.align and len(args.align) == 2 else 0
-            search_results = search_memory(self.phys_mem, page_ranges, to_search, to_search_num, aligned_to, aligned_offset)
-            for entry in search_results:
-                print("Found at " + hex(entry[0]) + " in " + str(entry[1]))
+        if to_search:
+            if page_ranges:
+                aligned_to = args.align[0] if args.align else 1
+                aligned_offset = args.align[1] if args.align and len(args.align) == 2 else 0
+                search_results = search_memory(self.phys_mem, page_ranges, to_search, to_search_num, aligned_to, aligned_offset)
+                for entry in search_results:
+                    print("Found at " + hex(entry[0]) + " in " + str(entry[1]))
+            else:
+                print("Not found")
+        elif args.kaslr:
+            self.backend.print_kaslr_information(page_ranges)
+        elif args.info:
+            self.backend.print_stats()
+        else:
+            self.backend.print_table(page_ranges)
 
     def invoke(self, arg, from_tty):
         if self.init == False:
@@ -225,5 +233,58 @@ class PageTableDump(gdb.Command):
             if saved_stdout:
                 sys.stdout.close()
                 sys.stdout = saved_stdout
+
+    def parse_filter_args(self, args):
+        filters = []
+        if args.range:
+            filters.append(lambda page: page.va >= args.range[0] and page.va <= args.range[1])
+
+        if args.has:
+            filters.append(lambda page: args.has[0] >= page.va and args.has[0] < page.va + page.page_size)
+
+        if args.after:
+            filters.append(lambda page: args.after[0] <= page.va)
+
+        if args.before:
+            filters.append(lambda page: args.before[0] > page.va)
+
+        if args.filter:
+            # First, we have to determine if user/superuser filter flag was set
+            # This is necessary at least for aarch64 where the AP bits provide many possibilities.
+
+            has_superuser_filter = False
+            has_user_filter = False
+            for f in args.filter:
+                if f == "s":
+                    has_superuser_filter = True
+                if f == "u":
+                    has_user_filter = True
+            if not has_superuser_filter and not has_user_filter:
+                has_superuser_filter = True
+                has_user_filter = True
+            for f in args.filter:
+                if f == "w":
+                    filters.append(self.backend.get_filter_is_writeable(has_superuser_filter, has_user_filter))
+                elif f == "_w":
+                    filters.append(self.backend.get_filter_is_not_writeable(has_superuser_filter, has_user_filter))
+                elif f == "x":
+                    filters.append(self.backend.get_filter_is_executable(has_superuser_filter, has_user_filter))
+                elif f == "_x":
+                    filters.append(self.backend.get_filter_is_not_executable(has_superuser_filter, has_user_filter))
+                elif f == "w|x" or f == "x|w":
+                    filters.append(self.backend.get_filter_is_writeable_or_executable(has_superuser_filter, has_user_filter))
+                elif f == "u" or f == "_s":
+                    filters.append(self.backend.get_filter_is_user_page(has_superuser_filter, has_user_filter))
+                elif f == "s" or f == "_u":
+                    filters.append(self.backend.get_filter_is_superuser_page(has_superuser_filter, has_user_filter))
+                elif f == "ro":
+                    filters.append(self.backend.get_filter_is_read_only_page(has_superuser_filter, has_user_filter))
+                elif f in ["wb", "_wb", "uc", "_uc"]:
+                    filters.append(self.backend.get_filter_architecture_specific(f, has_superuser_filter, has_user_filter))
+                else:
+                    print(f"Unknown filter: {f}")
+                    return
+
+        return create_compound_filter(filters)
 
 PageTableDump()
