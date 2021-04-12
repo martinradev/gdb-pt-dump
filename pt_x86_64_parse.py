@@ -1,4 +1,5 @@
 from pt_x86_64_definitions import *
+import pt_x86_msr as x86_msr
 from pt_common import *
 from pt_constants import *
 from pt_arch_backend import PTArchBackend
@@ -149,7 +150,8 @@ class PT_x86_64_Backend(PTArchBackend):
             print(page_to_str(page, conf))
 
     def print_stats(self):
-        print("Not implemented")
+        print(x86_msr.pt_cr0.check())
+        print(x86_msr.pt_cr4.check())
 
     def print_kaslr_information(self, table):
         potential_base_filter = lambda p: p.x and p.s and p.phys[0] % PT_SIZE_2MIB == 0

@@ -57,7 +57,4 @@ class PT_TCR(PT_Register):
             {0: "Top Byte used in the address calculation.",
              1: "Top Byte ignored in the address calculation."}))
  
-
 pt_tcr = PT_TCR()
-                   
-
