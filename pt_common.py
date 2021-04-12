@@ -2,12 +2,6 @@ import gdb
 from collections import namedtuple
 import copy
 
-class PageTableState:
-    def __init__(self, virtual_blocks):
-        self.virtual_blocks = virtual_blocks
-
-        # Create inverse physical map
-
 class bcolors:
     RED     = '\033[41m'
     BLUE    = '\033[44m'
@@ -18,10 +12,6 @@ class bcolors:
     YELLOW  = '\033[103m'
     LGREY   = '\033[47m'
     ENDC    = '\033[0m'
-
-class SupportedArch:
-    aarch64 = 1,
-    x86_64 = 2,
 
 def extract(value, s, e):
     return extract_no_shift(value, s, e) >> s
@@ -77,11 +67,6 @@ class Page():
         for phys_range_start, phys_range_size in zip(self.phys, self.sizes):
             memory += phys_mem.read(phys_range_start, phys_range_size)
         return memory
-
-class GenericPageRangeNoAttr():
-    def __init__(self, va, size):
-        self.va = va
-        self.size = size
 
 def page_to_str(page: Page, conf: PagePrintSettings):
     prefix = ""
