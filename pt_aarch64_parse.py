@@ -1,10 +1,11 @@
 from pt_common import *
 import pt_aarch64_definitions as a64_def
 from pt_arch_backend import PTArchBackend
+from pt_constants import *
 
-PT_AARCH64_4KB_PAGE  = 4096
-PT_AARCH64_16KB_PAGE = 16 * 1024
-PT_AARCH64_64KB_PAGE = 64 * 1024
+PT_AARCH64_4KB_PAGE  = PT_SIZE_4K
+PT_AARCH64_16KB_PAGE = PT_SIZE_16K
+PT_AARCH64_64KB_PAGE = PT_SIZE_64K
 
 def is_user_readable(block):
     return block.permissions == 0b11 or block.permissions == 0b01
@@ -85,19 +86,19 @@ def aarch64_parse_entries(phys_mem, tbl, as_size, granule, lvl):
             entries = read_page(phys_mem, tbl.pa)
             target_address_low = 12
             last_level = 4
-            sizes = [512 * 1024 * 1024 * 1024, 1024 * 1024 * 1024, 2 * 1024 * 1024, 4 * 1024]
+            sizes = [PT_SIZE_512GIB, PT_SIZE_1GIB, PT_SIZE_2MIB, PT_SIZE_4K]
             index_ranges_per_lvl = [(39, 47), (30, 38), (21, 29), (12, 20)]
         elif granule == PT_AARCH64_64KB_PAGE:
             entries = read_64k_page(phys_mem, tbl.pa)
             target_address_low = 16
             last_level = 3
-            sizes = [4 * 1024 * 1024 * 1024 * 1024, 512 * 1024 * 1024, 64 * 1024]
+            sizes = [PT_SIZE_4TB, PT_SIZE_512MIB, PT_SIZE_64K]
             index_ranges_per_lvl = [(42, 48), (29, 41), (16, 28)]
         elif granule == PT_AARCH64_16KB_PAGE:
             entries = read_16k_page(phys_mem, tbl.pa)
             target_address_low = 14
             last_level = 4
-            sizes = [128 * 1024 * 1024 * 1024 * 1024, 64 * 1024 * 1024 * 1024, 32 * 1024 * 1024, 16 * 1024]
+            sizes = [PT_SIZE_128TB, PT_SIZE_64GIB, PT_SIZE_32MIB, PT_SIZE_16K]
             index_ranges_per_lvl = [(47, 47), (36, 46), (25, 35), (14, 24)]
         else:
             raise Exception(f"Unknown granule size: {granule}")
@@ -286,14 +287,13 @@ class PT_Aarch64_Backend(PTArchBackend):
         return all_blocks
 
     def print_kaslr_information(self, table):
-        two_mib = 2 * 1024 * 1024
         potential_base_filter = lambda p: is_kernel_executable(p)
         tmp = list(filter(potential_base_filter, table))
         th = gdb.selected_inferior()
         found_page = None
         for page in tmp:
-            page_2mib_aligned_start = page.va if page.va % two_mib == 0 else (page.va & ~(two_mib - 1)) + two_mib
-            for start_addr in range(page_2mib_aligned_start, page.va + page.page_size, two_mib):
+            page_2mib_aligned_start = page.va if page.va % PT_SIZE_2MIB == 0 else (page.va & ~(PT_SIZE_2MIB - 1)) + PT_SIZE_2MIB
+            for start_addr in range(page_2mib_aligned_start, page.va + page.page_size, PT_SIZE_2MIB):
                 first_byte = th.read_memory(start_addr, 1)
                 if first_byte[0] == b'\x4d':
                     found_page = page

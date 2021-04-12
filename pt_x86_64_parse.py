@@ -1,5 +1,6 @@
 from pt_x86_64_definitions import *
 from pt_common import *
+from pt_constants import *
 from pt_arch_backend import PTArchBackend
 
 def parse_pml4(phys_mem, addr):
@@ -151,7 +152,7 @@ class PT_x86_64_Backend(PTArchBackend):
         print("Not implemented")
 
     def print_kaslr_information(self, table):
-        potential_base_filter = lambda p: p.x and p.s and p.phys[0] % (2 * 1024 * 1024) == 0
+        potential_base_filter = lambda p: p.x and p.s and p.phys[0] % PT_SIZE_2MIB == 0
         tmp = list(filter(potential_base_filter, table))
         th = gdb.selected_inferior()
         found_page = None
@@ -167,7 +168,7 @@ class PT_x86_64_Backend(PTArchBackend):
             print("\tVirt: " + str(found_page))
             print("\tPhys: " + hex(found_page.phys[0]))
             first_bytes = th.read_memory(page.va, 32).tobytes()
-            page_ranges_subset = filter(lambda page: not page.x and page.s and page.va % 2 * 1024 * 1024 == 0, table)
+            page_ranges_subset = filter(lambda page: not page.x and page.s and page.va % PT_SIZE_2MIB == 0, table)
             search_res_iter = search_memory(self.phys_mem, page_ranges_subset, first_bytes, 1, 1, 0)
             if search_res_iter == None:
                 print("Phys map was not found")
