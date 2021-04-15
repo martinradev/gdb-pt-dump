@@ -64,7 +64,7 @@ class PageTableDump(gdb.Command):
             Will filter-out virtual memory ranges which start before ADDR
         -after ADDR
             Will filter-out virtual memory ranges which start after ADDR
-        -ss STRING
+        -ss "STRING"
             Searches for the string STRING in the ranges after filtering
         -sb BYTESTRING
             Searches for the byte-string BYTESTRING in the ranges after filtering
@@ -92,6 +92,12 @@ class PageTableDump(gdb.Command):
         -o FILE_NAME
             Store the output from the current command to a file with name FILE_NAME.
             This may be useful when the a lot of data is produced, e.g. full page table.
+        -find_alias
+            Experimental feature and currently slow. Searches for aliases ranges in virtual memory.
+            Ranges are aliased if they point to the the same physical memory. This can be useful if one
+            is searching for R/RX memory which is writeable through some other address.
+            Another interesting option is to find alias for memory mapped in user space and kernel space.
+            TODO: This feature will be reworked for usability and performance in the near future.
 
     Example usage:
         `pt -save -filter s w|x wb`
@@ -105,7 +111,7 @@ class PageTableDump(gdb.Command):
             Traverse the page table at guest physical address 0x4000. Don't save it.
         `pt -save -kaslr`
             Traverse page tables, save them and print kaslr information.
-        `pt -ss Linux`
+        `pt -ss "Linux 4."`
             Search for the string Linux.
         `pt -sb da87374107`
             Search for the byte-string da87374107.
