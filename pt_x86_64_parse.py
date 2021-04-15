@@ -38,7 +38,7 @@ def parse_pdpes(phys_mem, pdpes):
             entries.extend(pdes)
         else:
             page = create_page_from_pdpe(pdpe)
-            one_gig_pages.append(page)
+            pages.append(page)
     return entries, pages
 
 def parse_pd(phys_mem, pdpe):
