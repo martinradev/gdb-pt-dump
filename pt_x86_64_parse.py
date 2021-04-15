@@ -118,6 +118,8 @@ class PT_x86_64_Backend(PTArchBackend):
             pt_addr = int(args.addr[0], 16)
         else:
             pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("long")))
+            # TODO: Check if these attribute bits in the cr3 need to be respected.
+            pt_addr = pt_addr & (~0xfff)
 
         page_ranges = None
         if pt_addr in cache:
