@@ -14,7 +14,7 @@ Although this is also possible via the `monitor` and `pwndbg` interfaces, workin
   Search is applied after filter.
 * Filter-out search results by address alignment. Useful for filtering-out SLAB allocations.
 * Try to determine KASLR information by examining the address space.
-  Currently, only the virtual and physical image offsets.
+* Find virtual memory aliases.
 
 ## How to use
 
