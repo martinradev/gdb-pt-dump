@@ -239,10 +239,13 @@ class PT_Aarch64_Backend(PTArchBackend):
         tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("long")))
         tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("long")))
 
+        # TODO: This may have some negative consequences since attributes are not respected.
+        tb0 = extract_no_shift(tb0, 10, 47)
+        tb1 = extract_no_shift(tb1, 10, 47)
+
         if tb0 in cache:
             all_blocks_0 = cache[tb0]
         else:
-            tb0 = extract_no_shift(tb0, 10, 47)
             tb0_granule_size = None
             tg0 = a64_def.pt_tcr.TG0
             if tg0 == 0b00:
@@ -260,7 +263,6 @@ class PT_Aarch64_Backend(PTArchBackend):
         if tb1 in cache:
             all_blocks_1 = cache[tb1]
         else:
-            tb1 = extract_no_shift(tb1, 10, 47)
             tb1_granule_size = None
             tg1 = a64_def.pt_tcr.TG1
             if tg1 == 0b10:
