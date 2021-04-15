@@ -173,3 +173,64 @@ def search_memory(phys_mem, page_ranges, to_search, to_search_num, aligned_to, a
             pass
     return None
 
+def find_aliases(virtual_page_ranges):
+    # First collect the physical ranges, aka inverse virtual map
+    phys_ranges = []
+    i = 0
+    for range in virtual_page_ranges:
+        virtual_page_range_base = range.va
+        off = 0
+        for phys_range, phys_range_size in zip(range.phys, range.sizes):
+            phys_ranges.append((phys_range, phys_range + phys_range_size, virtual_page_range_base + off))
+            off = off + phys_range_size
+
+    # Sort the physical ranges
+    phys_ranges = sorted(phys_ranges, key=lambda key: key[0])
+
+    # TODO
+    # We could use bisect here to speed-up
+    # The first loop can be simplified
+    # The object copy is a hack
+    # The check for previous occ is not elegant
+    overlaps_dict = {}
+    for range in virtual_page_ranges:
+        base_va = range.va
+        off = 0
+        for phys_range, phys_range_size in zip(range.phys, range.sizes):
+            phys_range_end = phys_range + phys_range_size
+            for saved_range in phys_ranges:
+                if saved_range[0] > phys_range_end:
+                    break
+                beg = max(phys_range, saved_range[0]) 
+                end = min(phys_range_end, saved_range[1]) 
+                va = base_va + off + (beg - phys_range)
+                if beg < end and va != saved_range[2]:
+                    key = (beg, end)
+                    # Make copy and clean-up
+                    range_copy = copy.copy(range)
+                    range_copy.phys = None
+                    range_copy.size = None
+                    range_copy.va = va
+                    range_copy.page_size = end - beg
+                    if key in overlaps_dict:
+                        found = False
+                        for tmp in overlaps_dict[key]:
+                            if tmp.va == va:
+                                found = True
+                                break
+                        if not found:
+                            overlaps_dict[key].append(range_copy)
+                    else:
+                        overlaps_dict[key] = [range_copy]
+            off = off + phys_range_size
+
+    # Print the found aliases
+    for key in overlaps_dict.keys():
+        overlaps = overlaps_dict[key]
+        if len(overlaps) > 1:
+            print(f"Phys: {hex(key[0])} - {hex(key[1])}")
+            overlap_len = key[1] - key[0]
+            for overlap in overlaps:
+                print(" " * 4 + str(overlap))
+            print("")
+

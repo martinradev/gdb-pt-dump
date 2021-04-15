@@ -137,6 +137,7 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-info", action="store_true")
         self.parser.add_argument("-filter", nargs="+")
         self.parser.add_argument("-o", nargs=1)
+        self.parser.add_argument("-find_alias", action="store_true")
         self.cache = dict()
 
         # Get quick access to physical memory.
@@ -211,6 +212,8 @@ class PageTableDump(gdb.Command):
             self.backend.print_kaslr_information(page_ranges)
         elif args.info:
             self.backend.print_stats()
+        elif args.find_alias:
+            find_aliases(page_ranges)
         else:
             self.backend.print_table(page_ranges)
 
