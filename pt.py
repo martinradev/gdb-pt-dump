@@ -4,8 +4,11 @@ import argparse
 import os
 
 # A hack to import the other files without placing the files in the modules directory.
-dirname = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(1, dirname)
+dirname = os.path.dirname(__file__)
+dirname = os.path.expanduser(dirname)
+dirname = os.path.abspath(dirname)
+
+sys.path.append(dirname)
 
 from pt_common import *
 from pt_x86_64_parse import *
