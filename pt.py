@@ -10,6 +10,7 @@ sys.path.insert(1, dirname)
 from pt_common import *
 from pt_x86_64_parse import *
 from pt_aarch64_parse import *
+from pt_riscv64_parse import *
 
 class VMPhysMem():
     def __init__(self, pid):
@@ -48,7 +49,7 @@ class PageTableDump(gdb.Command):
                 wb: write-back
                 uc: uncacheable
 
-             aarch64 Supported filters:
+             aarch64- and riscv64-supported filters:
                 w: is writeable.
                 x: is executable
                 w|x: is writeable or executable
@@ -161,6 +162,8 @@ class PageTableDump(gdb.Command):
             self.backend = PT_Aarch64_Backend(self.phys_mem)
         elif "x86-64" in arch:
             self.backend = PT_x86_64_Backend(self.phys_mem)
+        elif "riscv:rv64" in arch:
+            self.backend = PT_RiscV64_Backend(self.phys_mem)
         else:
             raise Exception(f"Unknown arch. Message: {arch}")
 

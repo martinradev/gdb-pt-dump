@@ -45,5 +45,5 @@ Thus, the page table address would need to be retrieved in some other way.
 
 ## Supported architectures
 
-Only `x86-64` and `aarch64` supported.
-There are still some todos left for `aarch64`.
+Supported architectures: `x86-64`, `aarch64`, `riscv64`.
+Planned: `x86-32`.
