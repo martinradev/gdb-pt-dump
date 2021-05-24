@@ -20,16 +20,14 @@ def extract_no_shift(value, s, e):
     mask = ((1<<(e + 1))-1) & ~((1<<s) - 1)
     return (value & mask)
 
-def read_n_pa64(phys_memory, addr, n):
-    mem = phys_memory.read(addr, n * 8)
+def split_range_into_int_values(memory, value_size):
     values = []
-    for u in range(0, len(mem), 8):
-        values.append(int.from_bytes(mem[u:u+8], 'little'))
+    for u in range(0, len(memory), value_size):
+        values.append(int.from_bytes(memory[u:u+value_size], 'little'))
     return values
 
 def read_arbitrary_page(phys_memory, addr, page_size):
-    n = int(page_size / 8)
-    return read_n_pa64(phys_memory, addr, n)
+    return phys_memory.read(addr, page_size)
 
 def read_page(phys_memory, addr):
     return read_arbitrary_page(phys_memory, addr, 4096)

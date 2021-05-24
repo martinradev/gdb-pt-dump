@@ -41,7 +41,7 @@ def riscv64_semantically_similar(p1, p2) -> bool:
 def parse_entries(phys_mem, table, as_size, lvl):
     dirs = []
     pages = []
-    entries = read_page(phys_mem, table.phys[0])
+    entries = split_range_into_int_values(read_page(phys_mem, table.phys[0]), 8)
     for i, pa in enumerate(entries):
         valid = extract(pa, 0, 0)
         if valid:

@@ -162,6 +162,8 @@ class PageTableDump(gdb.Command):
             self.backend = PT_Aarch64_Backend(self.phys_mem)
         elif "x86-64" in arch:
             self.backend = PT_x86_64_Backend(self.phys_mem)
+        elif "i386" in arch:
+            self.backend = PT_x86_32_Backend(self.phys_mem)
         elif "riscv:rv64" in arch:
             self.backend = PT_RiscV64_Backend(self.phys_mem)
         else:

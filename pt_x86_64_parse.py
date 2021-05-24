@@ -6,7 +6,7 @@ from pt_arch_backend import PTArchBackend
 
 def parse_pml4(phys_mem, addr):
     entries = []
-    values = read_page(phys_mem, addr)
+    values = split_range_into_int_values(read_page(phys_mem, addr), 8)
     for u, value in enumerate(values):
         if (value & 0x1) != 0: # Page must be present
             entry = PML4_Entry(value, u)
@@ -20,9 +20,9 @@ def parse_pml4es(phys_mem, pml4es):
         entries.extend(pdpe)
     return entries
 
-def parse_pdp(phys_mem, pml4e):
+def parse_pdp(phys_mem, pml4e, size = 4096):
     entries = []
-    values = read_page(phys_mem, pml4e.pdp)
+    values = split_range_into_int_values(phys_mem.read(pml4e.pdp, size), 8)
     for u, value in enumerate(values):
         if (value & 0x1) != 0:
             entry = PDP_Entry(value, pml4e.virt_part, u)
@@ -43,7 +43,7 @@ def parse_pdpes(phys_mem, pdpes):
 
 def parse_pd(phys_mem, pdpe):
     entries = []
-    values = read_page(phys_mem, pdpe.pd)
+    values = split_range_into_int_values(read_page(phys_mem, pdpe.pd), 8)
     for u, value in enumerate(values):
         if (value & 0x1) != 0:
             entry = PD_Entry(value, pdpe.virt_part, u)
@@ -64,18 +64,14 @@ def parse_pdes(phys_mem, pdes):
 
 def parse_pt(phys_mem, pde):
     entries = []
-    values = read_page(phys_mem, pde.pt)
+    values = split_range_into_int_values(read_page(phys_mem, pde.pt), 8)
     for u, value in enumerate(values):
         if (value & 0x1) != 0:
             entry = PT_Entry(value, pde.virt_part, u)
             entries.append(entry)
     return entries
 
-class PT_x86_64_Backend(PTArchBackend):
-
-    def __init__(self, phys_mem):
-        self.phys_mem = phys_mem
-
+class PT_x86_Common_Backend():
     def get_filter_is_writeable(self, has_superuser_filter, has_user_filter):
         return lambda p: p.w
 
@@ -111,35 +107,6 @@ class PT_x86_64_Backend(PTArchBackend):
             return lambda p: not p.uc
         else:
             return None
-
-    def parse_tables(self, cache, args):
-        pt_addr = None
-        if args.addr:
-            pt_addr = int(args.addr[0], 16)
-        else:
-            pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("long")))
-            # TODO: Check if these attribute bits in the cr3 need to be respected.
-            pt_addr = pt_addr & (~0xfff)
-
-        page_ranges = None
-        if pt_addr in cache:
-            page_ranges = cache[pt_addr]
-        else:
-            pml4es = parse_pml4(self.phys_mem, pt_addr)
-            pdpes = parse_pml4es(self.phys_mem, pml4es)
-            pdes, one_gig_pages = parse_pdpes(self.phys_mem, pdpes)
-            ptes, two_mb_pages = parse_pdes(self.phys_mem, pdes)
-            small_pages = []
-            for pte in ptes:
-                small_pages.append(create_page_from_pte(pte))
-            page_ranges = optimize(one_gig_pages, two_mb_pages, small_pages, rwxs_semantically_similar)
-
-        # Cache the page table if caching is set.
-        # Caching happens before the filter is applied.
-        if args.save:
-            cache[pt_addr] = page_ranges
-
-        return page_ranges
 
     def print_table(self, table):
         # Compute max len for these varying-len strings in order to print as tabular.
@@ -182,4 +149,77 @@ class PT_x86_64_Backend(PTArchBackend):
                 print("\tVirt: " + hex(search_res[0] - found_page.phys[0]) + " in " + str(search_res[1]))
         else:
             print("Failed to find KASLR info")
+
+
+class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
+
+    def __init__(self, phys_mem):
+        self.phys_mem = phys_mem
+
+    def parse_tables(self, cache, args):
+        pt_addr = None
+        if args.addr:
+            pt_addr = int(args.addr[0], 16)
+        else:
+            pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("long")))
+            # TODO: Check if these attribute bits in the cr3 need to be respected.
+            pt_addr = pt_addr & (~0xfff)
+
+        page_ranges = None
+        if pt_addr in cache:
+            page_ranges = cache[pt_addr]
+        else:
+            pml4es = parse_pml4(self.phys_mem, pt_addr)
+            pdpes = parse_pml4es(self.phys_mem, pml4es)
+            pdes, one_gig_pages = parse_pdpes(self.phys_mem, pdpes)
+            ptes, two_mb_pages = parse_pdes(self.phys_mem, pdes)
+            small_pages = []
+            for pte in ptes:
+                small_pages.append(create_page_from_pte(pte))
+            page_ranges = optimize(one_gig_pages, two_mb_pages, small_pages, rwxs_semantically_similar)
+
+        # Cache the page table if caching is set.
+        # Caching happens before the filter is applied.
+        if args.save:
+            cache[pt_addr] = page_ranges
+
+        return page_ranges
+
+class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
+
+    def __init__(self, phys_mem):
+        uses_pae = ((int(gdb.parse_and_eval("$cr4").cast(gdb.lookup_type("int"))) >> 5) & 0x1) == 0x1
+        if not uses_pae:
+            raise Exception("Current implementation only supports i386 with PAE")
+        self.phys_mem = phys_mem
+        return None
+
+    def parse_tables(self, cache, args):
+        pt_addr = None
+        if args.addr:
+            pt_addr = int(args.addr[0], 16)
+        else:
+            pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("int")))
+            # TODO: Check if these attribute bits in the cr3 need to be respected.
+            pt_addr = pt_addr & (~0xfff)
+
+        page_ranges = None
+        if pt_addr in cache:
+            page_ranges = cache[pt_addr]
+        else:
+            dummy_pml4 = PML4_Entry(pt_addr, 0)
+            pdpes = parse_pdp(self.phys_mem, dummy_pml4, 4 * 8)
+            pdes, one_gig_pages = parse_pdpes(self.phys_mem, pdpes)
+            ptes, two_mb_pages = parse_pdes(self.phys_mem, pdes)
+            small_pages = []
+            for pte in ptes:
+                small_pages.append(create_page_from_pte(pte))
+            page_ranges = optimize(one_gig_pages, two_mb_pages, small_pages, rwxs_semantically_similar)
+
+        # Cache the page table if caching is set.
+        # Caching happens before the filter is applied.
+        if args.save:
+            cache[pt_addr] = page_ranges
+
+        return page_ranges
 
