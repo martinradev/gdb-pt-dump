@@ -99,6 +99,11 @@ class PageTableDump(gdb.Command):
             is searching for R/RX memory which is writeable through some other address.
             Another interesting option is to find alias for memory mapped in user space and kernel space.
             TODO: This feature will be reworked for usability and performance in the near future.
+        -force_traverse_all
+            Forces the traversal of any page table entry (pml4, pdp, ...) even if a duplicate entry has
+            already been trarversed. Using this option bypasses an optimization which discards already
+            traversed duplicate entries. Expect that using this option would render pt unusable for
+            windows VMs.
 
     Example usage:
         `pt -save -filter s w|x wb`
@@ -145,6 +150,7 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-filter", nargs="+")
         self.parser.add_argument("-o", nargs=1)
         self.parser.add_argument("-find_alias", action="store_true")
+        self.parser.add_argument("-force_traverse_all", action="store_true")
         self.cache = dict()
 
         # Get quick access to physical memory.
