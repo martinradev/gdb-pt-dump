@@ -131,7 +131,7 @@ class PT_x86_Common_Backend():
         print(x86_msr.pt_cr0.check())
         print(x86_msr.pt_cr4.check())
 
-    def print_kaslr_information(self, table):
+    def print_kaslr_information(self, table, should_print=True):
         potential_base_filter = lambda p: p.x and p.s and p.phys[0] % PT_SIZE_2MIB == 0
         tmp = list(filter(potential_base_filter, table))
         th = gdb.selected_inferior()
@@ -143,10 +143,13 @@ class PT_x86_Common_Backend():
                 found_page = page
                 break
 
+        stdout_output = ""
+        kaslr_addresses = []
         if found_page:
-            print("Found virtual image base:")
-            print("\tVirt: " + str(found_page))
-            print("\tPhys: " + hex(found_page.phys[0]))
+            stdout_output += "Found virtual image base:\n"
+            stdout_output += "\tVirt: " + str(found_page) + "\n"
+            stdout_output += "\tPhys: " + hex(found_page.phys[0]) + "\n"
+            kaslr_addresses.append(found_page.va)
             first_bytes = th.read_memory(page.va, 32).tobytes()
             page_ranges_subset = filter(lambda page: not page.x and page.s and page.va % PT_SIZE_2MIB == 0, table)
             search_res_iter = search_memory(self.phys_mem, page_ranges_subset, first_bytes, 1, 1, 0)
@@ -154,10 +157,15 @@ class PT_x86_Common_Backend():
                 print("Phys map was not found")
             else:
                 search_res = next(search_res_iter)
-                print("Found phys map base:")
-                print("\tVirt: " + hex(search_res[0] - found_page.phys[0]) + " in " + str(search_res[1]))
+                stdout_output += "Found phys map base:\n"
+                phys_map_virt_base = search_res[0] - found_page.phys[0]
+                stdout_output += "\tVirt: " + hex(phys_map_virt_base) + " in " + str(search_res[1]) + "\n"
+                kaslr_addresses.append(phys_map_virt_base)
         else:
-            print("Failed to find KASLR info")
+            stdout_output = "Failed to find KASLR info"
+        if should_print:
+            print(stdout_output)
+        return kaslr_addresses
 
 
 class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):

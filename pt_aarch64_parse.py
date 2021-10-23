@@ -288,11 +288,12 @@ class PT_Aarch64_Backend(PTArchBackend):
 
         return all_blocks
 
-    def print_kaslr_information(self, table):
+    def print_kaslr_information(self, table, should_print = True):
         potential_base_filter = lambda p: is_kernel_executable(p)
         tmp = list(filter(potential_base_filter, table))
         th = gdb.selected_inferior()
         found_page = None
+        kaslr_addresses = []
         for page in tmp:
             page_2mib_aligned_start = page.va if page.va % PT_SIZE_2MIB == 0 else (page.va & ~(PT_SIZE_2MIB - 1)) + PT_SIZE_2MIB
             for start_addr in range(page_2mib_aligned_start, page.va + page.page_size, PT_SIZE_2MIB):
@@ -301,11 +302,15 @@ class PT_Aarch64_Backend(PTArchBackend):
                     found_page = page
                     break
         if found_page:
-            print("Found virtual image base:")
-            print("\tVirt: " + str(found_page))
-            print("\tPhys: " + hex(found_page.phys[0]))
+            kaslr_addresses.append(found_page.va)
+            if should_print:
+                print("Found virtual image base:")
+                print("\tVirt: " + str(found_page))
+                print("\tPhys: " + hex(found_page.phys[0]))
         else:
-            print("Failed to determine kaslr offsets")
+            if should_print:
+                print("Failed to determine kaslr offsets")
+        return kaslr_addresses
 
     def print_table(self, table):
         max_va_len, max_page_size_len = compute_max_str_len(table)

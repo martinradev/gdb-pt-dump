@@ -81,6 +81,8 @@ class PageTableDump(gdb.Command):
             It can be useful when searching for content in a particular SLAB.
         -kaslr
             Print KASLR-relevant information like the image offsets and phys map base.
+        -kaslr_leaks
+            Searchers for values which disclose KASLR offsets.
         -save
             Cache the recorded page table for that address after traversing the hierachy.
             This will yield speed-up when printing the page table again.
@@ -146,6 +148,7 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-has", nargs=1, type=lambda s: int(s, 0))
         self.parser.add_argument("-align", nargs='+', type=lambda s: int(s, 0))
         self.parser.add_argument("-kaslr", action="store_true")
+        self.parser.add_argument("-kaslr_leaks", action="store_true")
         self.parser.add_argument("-info", action="store_true")
         self.parser.add_argument("-filter", nargs="+")
         self.parser.add_argument("-o", nargs=1)
@@ -212,27 +215,42 @@ class PageTableDump(gdb.Command):
         if args.info:
             requires_page_table_parsing = False
 
+        page_ranges = None
+        page_ranges_filtered = None
         if requires_page_table_parsing:
             page_ranges = self.backend.parse_tables(self.cache, args)
-            page_ranges = list(filter(self.parse_filter_args(args), page_ranges))
+            page_ranges_filtered = list(filter(self.parse_filter_args(args), page_ranges))
 
         if to_search:
-            if page_ranges:
+            if page_ranges_filtered:
                 aligned_to = args.align[0] if args.align else 1
                 aligned_offset = args.align[1] if args.align and len(args.align) == 2 else 0
-                search_results = search_memory(self.phys_mem, page_ranges, to_search, to_search_num, aligned_to, aligned_offset)
+                search_results = search_memory(self.phys_mem, page_ranges_filtered, to_search, to_search_num, aligned_to, aligned_offset)
                 for entry in search_results:
                     print("Found at " + hex(entry[0]) + " in " + str(entry[1]))
             else:
                 print("Not found")
         elif args.kaslr:
             self.backend.print_kaslr_information(page_ranges)
+        elif args.kaslr_leaks:
+            def inner_find_leaks(x, off):
+                top = (x >> (off * 8)).to_bytes(8 - off, 'little')
+                num_entries = 10
+                entries = search_memory(self.phys_mem, page_ranges_filtered, top, num_entries, 1, 0)
+                if entries:
+                    print(f"Search for {hex(x)}")
+                    for entry in entries:
+                        print("Found at " + hex(entry[0] - off) + " in " + str(entry[1]))
+            leaks = self.backend.print_kaslr_information(page_ranges, False)
+            if leaks:
+                inner_find_leaks(leaks[0], 3)
+                inner_find_leaks(leaks[1], 5)
         elif args.info:
             self.backend.print_stats()
         elif args.find_alias:
             find_aliases(page_ranges)
         else:
-            self.backend.print_table(page_ranges)
+            self.backend.print_table(page_ranges_filtered)
 
     def invoke(self, arg, from_tty):
         if self.init == False:
