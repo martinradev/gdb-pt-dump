@@ -4,9 +4,9 @@ from pt_common import *
 from pt_constants import *
 from pt_arch_backend import PTArchBackend
 
-def parse_pml4(phys_mem, addr, force_traverse_all=False):
+def parse_pml4(phys_mem, addr, force_traverse_all=False, entry_size=8):
     entries = []
-    values = split_range_into_int_values(read_page(phys_mem, addr), 8)
+    values = split_range_into_int_values(read_page(phys_mem, addr), entry_size)
     pml4_cache = {}
     for u, value in enumerate(values):
         if (value & 0x1) != 0: # Page must be present
@@ -16,16 +16,16 @@ def parse_pml4(phys_mem, addr, force_traverse_all=False):
                 pml4_cache[value] = entry
     return entries
 
-def parse_pml4es(phys_mem, pml4es, force_traverse_all=False):
+def parse_pml4es(phys_mem, pml4es, force_traverse_all=False, entry_size=8):
     entries = []
     for pml4e in pml4es:
-        pdpe = parse_pdp(phys_mem, pml4e, force_traverse_all)
+        pdpe = parse_pdp(phys_mem, pml4e, force_traverse_all, 4096, entry_size)
         entries.extend(pdpe)
     return entries
 
-def parse_pdp(phys_mem, pml4e, force_traverse_all, size = 4096):
+def parse_pdp(phys_mem, pml4e, force_traverse_all, size=4096, entry_size=8):
     entries = []
-    values = split_range_into_int_values(phys_mem.read(pml4e.pdp, size), 8)
+    values = split_range_into_int_values(phys_mem.read(pml4e.pdp, size), entry_size)
     pdp_cache = {}
     for u, value in enumerate(values):
         if (value & 0x1) != 0:
@@ -35,45 +35,45 @@ def parse_pdp(phys_mem, pml4e, force_traverse_all, size = 4096):
                 pdp_cache[value] = entry
     return entries
 
-def parse_pdpes(phys_mem, pdpes, force_traverse_all=False):
+def parse_pdpes(phys_mem, pdpes, force_traverse_all=False, entry_size=8):
     entries = []
     pages = []
     for pdpe in pdpes:
         if pdpe.one_gig == False:
-            pdes = parse_pd(phys_mem, pdpe, force_traverse_all)
+            pdes = parse_pd(phys_mem, pdpe, force_traverse_all, entry_size)
             entries.extend(pdes)
         else:
             page = create_page_from_pdpe(pdpe)
             pages.append(page)
     return entries, pages
 
-def parse_pd(phys_mem, pdpe, force_traverse_all):
+def parse_pd(phys_mem, pdpe, force_traverse_all, entry_size=8):
     entries = []
-    values = split_range_into_int_values(read_page(phys_mem, pdpe.pd), 8)
+    values = split_range_into_int_values(read_page(phys_mem, pdpe.pd), entry_size)
     pd_cache = {}
     for u, value in enumerate(values):
         if (value & 0x1) != 0:
             if force_traverse_all or value not in pd_cache:
-                entry = PD_Entry(value, pdpe.virt_part, u)
+                entry = PD_Entry(value, pdpe.virt_part, u, entry_size == 4)
                 entries.append(entry)
                 pd_cache[value] = entry
     return entries
 
-def parse_pdes(phys_mem, pdes):
+def parse_pdes(phys_mem, pdes, entry_size=8):
     entries = []
     pages = []
     for pde in pdes:
         if pde.two_mb == False:
-            ptes = parse_pt(phys_mem, pde)
+            ptes = parse_pt(phys_mem, pde, entry_size)
             entries.extend(ptes)
         else:
             page = create_page_from_pde(pde)
             pages.append(page)
     return entries, pages
 
-def parse_pt(phys_mem, pde):
+def parse_pt(phys_mem, pde, entry_size=8):
     entries = []
-    values = split_range_into_int_values(read_page(phys_mem, pde.pt), 8)
+    values = split_range_into_int_values(read_page(phys_mem, pde.pt), entry_size)
     for u, value in enumerate(values):
         if (value & 0x1) != 0:
             entry = PT_Entry(value, pde.virt_part, u)
@@ -206,8 +206,7 @@ class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
 
     def __init__(self, phys_mem):
         uses_pae = ((int(gdb.parse_and_eval("$cr4").cast(gdb.lookup_type("int"))) >> 5) & 0x1) == 0x1
-        if not uses_pae:
-            raise Exception("Current implementation only supports i386 with PAE")
+        self.pae = uses_pae
         self.phys_mem = phys_mem
         return None
 
@@ -224,10 +223,15 @@ class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
         if pt_addr in cache:
             page_ranges = cache[pt_addr]
         else:
-            dummy_pml4 = PML4_Entry(pt_addr, 0)
-            pdpes = parse_pdp(self.phys_mem, dummy_pml4, args.force_traverse_all, 4 * 8)
-            pdes, one_gig_pages = parse_pdpes(self.phys_mem, pdpes, args.force_traverse_all)
-            ptes, two_mb_pages = parse_pdes(self.phys_mem, pdes)
+            pdpes = None
+            entry_size = 8 if self.pae else 4
+            if self.pae:
+                dummy_pml4 = PML4_Entry(pt_addr, 0)
+                pdpes = parse_pdp(self.phys_mem, dummy_pml4, args.force_traverse_all, 4 * entry_size, entry_size)
+            else:
+                pdpes = [PDP_Entry(pt_addr, 0, 0)]
+            pdes, one_gig_pages = parse_pdpes(self.phys_mem, pdpes, args.force_traverse_all, entry_size)
+            ptes, two_mb_pages = parse_pdes(self.phys_mem, pdes, entry_size)
             small_pages = []
             for pte in ptes:
                 small_pages.append(create_page_from_pte(pte))

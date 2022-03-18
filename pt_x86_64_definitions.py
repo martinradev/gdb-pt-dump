@@ -59,14 +59,15 @@ class PDP_Entry():
         return res
 
 class PD_Entry():
-    def __init__(self, value, parent_va, index):
+    def __init__(self, value, parent_va, index, is_x86_32_no_pae = False):
         self.present = is_present(value)
         self.writeable = is_writeable(value)
         self.supervisor = is_supervisor(value)
         self.writeback = is_writeback(value)
         self.cacheable = is_cacheable(value)
         self.accessed = is_accessed(value)
-        self.virt_part = (index << 21) | parent_va
+        shift = 21 if not is_x86_32_no_pae else 22
+        self.virt_part = (index << shift) | parent_va
         self.two_mb = is_two_mb(value) # This means it's a leaf
         if self.two_mb:
             self.dirty = is_dirty(value)
