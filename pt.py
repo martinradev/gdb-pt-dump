@@ -153,15 +153,16 @@ class PageTableDump(gdb.Command):
     """
     def __init__(self):
         super(PageTableDump, self).__init__("pt", gdb.COMMAND_USER)
-        self.init = False
+        self.pid = -1
 
     def lazy_init(self):
+        print("lazy init")
 
         # Get quick access to physical memory.
         proc = os.popen("pgrep qemu-system")
-        pid = int(proc.read().strip(), 10)
+        self.pid = int(proc.read().strip(), 10)
         proc.close()
-        self.phys_mem = VMPhysMem(pid)
+        self.phys_mem = VMPhysMem(self.pid)
 
         self.backend = None
         arch = gdb.execute("show architecture", to_string = True)
@@ -295,7 +296,17 @@ class PageTableDump(gdb.Command):
             self.backend.print_table(page_ranges_filtered)
 
     def invoke(self, arg, from_tty):
-        if self.init == False:
+        curr_proc = os.popen("pgrep qemu-system")
+        curr_pid = None
+        try:
+            curr_pid = int(curr_proc.read().strip(), 10)
+        except:
+            print("Cannot get qemu-system pid")
+            return
+        finally:
+            if curr_proc:
+                curr_proc.close()
+        if curr_pid != self.pid:
             self.lazy_init()
 
         argv = gdb.string_to_argv(arg)
