@@ -4,6 +4,10 @@ from pt_common import *
 from pt_constants import *
 from pt_arch_backend import PTArchBackend
 
+def has_paging_enabled():
+    uses_paging = ((int(gdb.parse_and_eval("$cr0").cast(gdb.lookup_type("unsigned long"))) >> 31) & 0x1) == 0x1
+    return uses_paging
+
 def parse_pml4(phys_mem, addr, force_traverse_all=False, entry_size=8):
     entries = []
     values = split_range_into_int_values(read_page(phys_mem, addr), entry_size)
@@ -174,6 +178,10 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
         self.phys_mem = phys_mem
 
     def parse_tables(self, cache, args):
+        # Check that paging is enabled, otherwise no point to continue.
+        if has_paging_enabled() == False:
+            raise Exception("Paging is not enabled")
+
         pt_addr = None
         if args.addr:
             pt_addr = int(args.addr[0], 16)
@@ -211,6 +219,10 @@ class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
         return None
 
     def parse_tables(self, cache, args):
+        # Check that paging is enabled, otherwise no point to continue.
+        if has_paging_enabled() == False:
+            raise Exception("Paging is not enabled")
+
         pt_addr = None
         if args.addr:
             pt_addr = int(args.addr[0], 16)
