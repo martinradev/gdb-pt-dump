@@ -186,7 +186,7 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
         if args.addr:
             pt_addr = int(args.addr[0], 16)
         else:
-            pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("long")))
+            pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("unsigned long")))
             # TODO: Check if these attribute bits in the cr3 need to be respected.
             pt_addr = pt_addr & (~0xfff)
 
@@ -213,7 +213,7 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
 class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
 
     def __init__(self, phys_mem):
-        uses_pae = ((int(gdb.parse_and_eval("$cr4").cast(gdb.lookup_type("int"))) >> 5) & 0x1) == 0x1
+        uses_pae = ((int(gdb.parse_and_eval("$cr4").cast(gdb.lookup_type("unsigned long"))) >> 5) & 0x1) == 0x1
         self.pae = uses_pae
         self.phys_mem = phys_mem
         return None
@@ -227,7 +227,7 @@ class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
         if args.addr:
             pt_addr = int(args.addr[0], 16)
         else:
-            pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("int")))
+            pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("unsigned long")))
             # TODO: Check if these attribute bits in the cr3 need to be respected.
             pt_addr = pt_addr & (~0xfff)
 

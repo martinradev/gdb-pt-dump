@@ -138,7 +138,7 @@ class PT_RiscV64_Backend(PTArchBackend):
         raise exception(f"Uknown filter {filter_name}")
 
     def parse_tables(self, cache, args):
-        satp = int(gdb.parse_and_eval("$satp").cast(gdb.lookup_type("long")))
+        satp = int(gdb.parse_and_eval("$satp").cast(gdb.lookup_type("unsigned long")))
 
         all_blocks = None
 

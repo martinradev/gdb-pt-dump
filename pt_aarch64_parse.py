@@ -236,8 +236,8 @@ class PT_Aarch64_Backend(PTArchBackend):
         raise exception(f"Uknown filter {filter_name}")
 
     def parse_tables(self, cache, args):
-        tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("long")))
-        tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("long")))
+        tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("unsigned long")))
+        tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("unsigned long")))
 
         # TODO: This may have some negative consequences since attributes are not respected.
         tb0 = extract_no_shift(tb0, 10, 47)

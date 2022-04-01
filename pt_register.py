@@ -43,7 +43,7 @@ class PT_Register:
         self.ranges_dict[name] = PT_Register_Range(name = name, low = low, high = high, func = decipher_meaning)
 
     def check(self):
-        reg_value = int(gdb.parse_and_eval(f"${self.register}").cast(gdb.lookup_type("long")))
+        reg_value = int(gdb.parse_and_eval(f"${self.register}").cast(gdb.lookup_type("unsigned long")))
         kv = dict()
         for key in self.ranges_dict:
             r = self.ranges_dict[key]
