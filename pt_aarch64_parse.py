@@ -195,6 +195,9 @@ class PT_Aarch64_Backend(PTArchBackend):
     def __init__(self, phys_mem):
         self.phys_mem = phys_mem
 
+    def get_arch(self):
+        return "aarch64"
+
     def get_filter_is_writeable(self, has_superuser_filter, has_user_filter):
         if has_superuser_filter == True and has_user_filter == False:
             return lambda p: is_kernel_writeable(p)
@@ -256,46 +259,60 @@ class PT_Aarch64_Backend(PTArchBackend):
         raise exception(f"Uknown filter {filter_name}")
 
     def parse_tables(self, cache, args):
-        tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("unsigned long")))
-        tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("unsigned long")))
+        tb0 = args.ttbr0_el1
+        tb1 = args.ttbr1_el1
 
-        # TODO: This may have some negative consequences since attributes are not respected.
-        tb0 = extract_no_shift(tb0, 10, 47)
-        tb1 = extract_no_shift(tb1, 10, 47)
+        if tb0:
+            tb0 = int(tb0[0], 16)
+        if tb1:
+            tb1 = int(tb1[0], 16)
 
-        if tb0 in cache:
-            all_blocks_0 = cache[tb0]
-        else:
-            tb0_granule_size = None
-            tg0 = a64_def.pt_tcr.TG0
-            if tg0 == 0b00:
-                tb0_granule_size = PT_AARCH64_4KB_PAGE
-            elif tg0 == 0b01:
-                tb0_granule_size = PT_AARCH64_64KB_PAGE
-            elif tg0 == 0b10:
-                tb0_granule_size = PT_AARCH64_16KB_PAGE
+        # If neither is provided, just then query the actual translation table registers.
+        if not tb0 and not tb1:
+            tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("unsigned long")))
+            tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("unsigned long")))
+
+        all_blocks_0 = []
+        all_blocks_1 = []
+        if not args.ttbr1_el1:
+            # Try to get the blocks from TTBR0 only if user has not specifically requested interpreting
+            # the provided TTBR1.
+            tb0 = extract_no_shift(tb0, 10, 47)
+            if tb0 in cache:
+                all_blocks_0 = cache[tb0]
             else:
-                raise Exception(f"Unknown TG0 value {tg0}")
-            tb0_sz = 64 - a64_def.pt_tcr.T0SZ
-            all_blocks_0 = arm_traverse_table(self.phys_mem, tb0, tb0_sz, tb0_granule_size, 0)
-            all_blocks_0 = optimize([], [], all_blocks_0, aarch64_semantically_similar)
+                tb0_granule_size = None
+                tg0 = a64_def.pt_tcr.TG0
+                if tg0 == 0b00:
+                    tb0_granule_size = PT_AARCH64_4KB_PAGE
+                elif tg0 == 0b01:
+                    tb0_granule_size = PT_AARCH64_64KB_PAGE
+                elif tg0 == 0b10:
+                    tb0_granule_size = PT_AARCH64_16KB_PAGE
+                else:
+                    raise Exception(f"Unknown TG0 value {tg0}")
+                tb0_sz = 64 - a64_def.pt_tcr.T0SZ
+                all_blocks_0 = arm_traverse_table(self.phys_mem, tb0, tb0_sz, tb0_granule_size, 0)
+                all_blocks_0 = optimize([], [], all_blocks_0, aarch64_semantically_similar)
 
-        if tb1 in cache:
-            all_blocks_1 = cache[tb1]
-        else:
-            tb1_granule_size = None
-            tg1 = a64_def.pt_tcr.TG1
-            if tg1 == 0b10:
-                tb1_granule_size = PT_AARCH64_4KB_PAGE 
-            elif tg1 == 0b11:
-                tb1_granule_size = PT_AARCH64_64KB_PAGE 
-            elif tg1 == 0b01:
-                tb1_granule_size = PT_AARCH64_16KB_PAGE 
+        if not args.ttbr0_el1:
+            tb1 = extract_no_shift(tb1, 10, 47)
+            if tb1 in cache:
+                all_blocks_1 = cache[tb1]
             else:
-                raise Exception(f"Unknown TG1 value {tg1}")
-            tb1_sz = 64 - a64_def.pt_tcr.T1SZ
-            all_blocks_1 = arm_traverse_table(self.phys_mem, tb1, tb1_sz, tb1_granule_size, 1)
-            all_blocks_1 = optimize([], [], all_blocks_1, aarch64_semantically_similar)
+                tb1_granule_size = None
+                tg1 = a64_def.pt_tcr.TG1
+                if tg1 == 0b10:
+                    tb1_granule_size = PT_AARCH64_4KB_PAGE
+                elif tg1 == 0b11:
+                    tb1_granule_size = PT_AARCH64_64KB_PAGE
+                elif tg1 == 0b01:
+                    tb1_granule_size = PT_AARCH64_16KB_PAGE
+                else:
+                    raise Exception(f"Unknown TG1 value {tg1}")
+                tb1_sz = 64 - a64_def.pt_tcr.T1SZ
+                all_blocks_1 = arm_traverse_table(self.phys_mem, tb1, tb1_sz, tb1_granule_size, 1)
+                all_blocks_1 = optimize([], [], all_blocks_1, aarch64_semantically_similar)
 
         # TODO: Consider the top-byte ignore rules
         # TODO: Consider EPDs

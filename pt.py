@@ -44,9 +44,6 @@ class PageTableDump(gdb.Command):
     """
     GDB pt-dump: command for inspecting VM page tables.
     Arguments:
-        -addr HEX_ADDR
-            The GPA of the page table. If not used, the script will use the architectural
-            register (e.g. cr3).
         -filter FILTER [FILTER ...]
             Specify filters for the recorded pages.
             x86_64 Supported filters:
@@ -117,6 +114,22 @@ class PageTableDump(gdb.Command):
             traversed duplicate entries. Expect that using this option would render pt unusable for
             windows VMs.
 
+    Architecture-specific arguments:
+        - X86-32 / X86-64
+            `-cr3 HEX_ADDR`
+                The GPA of the page table. If not used, the script will use the architectural
+                register (e.g. cr3).
+
+        - aarch64
+            `-ttbr0_el1 HEX_ADDR`
+                The GPA of the TTBR0_EL1 register.
+            `-ttbr1_el1 HEX_ADDR`
+                The GPA of the TTBR1_EL1 register.
+
+        - riscv64
+            `-satp HEX_ADDR`
+                The GPA of the SATP register.
+
     Example usage:
         `pt -save -filter s w|x wb`
             Traverse the current page table and then save it. When returning the result,
@@ -125,7 +138,7 @@ class PageTableDump(gdb.Command):
         `pt -filter w x`
             Traverse the current page table and print out mappings which are both writeable and
             executable.
-        `pt -addr 0x4000`
+        `pt -cr3 0x4000`
             Traverse the page table at guest physical address 0x4000. Don't save it.
         `pt -save -kaslr`
             Traverse page tables, save them and print kaslr information.
@@ -143,8 +156,27 @@ class PageTableDump(gdb.Command):
         self.init = False
 
     def lazy_init(self):
+
+        # Get quick access to physical memory.
+        proc = os.popen("pgrep qemu-system")
+        pid = int(proc.read().strip(), 10)
+        proc.close()
+        self.phys_mem = VMPhysMem(pid)
+
+        self.backend = None
+        arch = gdb.execute("show architecture", to_string = True)
+        if "aarch64" in arch:
+            self.backend = PT_Aarch64_Backend(self.phys_mem)
+        elif "x86-64" in arch or "x64-64" in arch:
+            self.backend = PT_x86_64_Backend(self.phys_mem)
+        elif "x86-32" in arch or "x64-32" in arch or "(currently i386)" in arch:
+            self.backend = PT_x86_32_Backend(self.phys_mem)
+        elif "riscv:rv64" in arch:
+            self.backend = PT_RiscV64_Backend(self.phys_mem)
+        else:
+            raise Exception(f"Unknown arch. Message: {arch}")
+
         self.parser = argparse.ArgumentParser()
-        self.parser.add_argument("-addr", nargs=1)
         self.parser.add_argument("-save", action="store_true")
         self.parser.add_argument("-list", action="store_true")
         self.parser.add_argument("-clear", action="store_true")
@@ -164,29 +196,20 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-o", nargs=1)
         self.parser.add_argument("-find_alias", action="store_true")
         self.parser.add_argument("-force_traverse_all", action="store_true")
+
+        if self.backend.get_arch() == "x86_64" or self.backend.get_arch() == "x86_32":
+            self.parser.add_argument("-cr3", nargs=1)
+
+        if self.backend.get_arch() == "aarch64":
+            self.parser.add_argument("-ttbr0_el1", nargs=1)
+            self.parser.add_argument("-ttbr1_el1", nargs=1)
+
+        if self.backend.get_arch() == "riscv64":
+            self.parser.add_argument("-satp", nargs=1)
+
         self.cache = dict()
 
-        # Get quick access to physical memory.
-        proc = os.popen("pgrep qemu-system")
-        pid = int(proc.read().strip(), 10)
-        proc.close()
-
-        self.phys_mem = VMPhysMem(pid)
-
         self.init = True
-
-        self.backend = None
-        arch = gdb.execute("show architecture", to_string = True)
-        if "aarch64" in arch:
-            self.backend = PT_Aarch64_Backend(self.phys_mem)
-        elif "x86-64" in arch or "x64-64" in arch:
-            self.backend = PT_x86_64_Backend(self.phys_mem)
-        elif "x86-32" in arch or "x64-32" in arch or "(currently i386)" in arch:
-            self.backend = PT_x86_32_Backend(self.phys_mem)
-        elif "riscv:rv64" in arch:
-            self.backend = PT_RiscV64_Backend(self.phys_mem)
-        else:
-            raise Exception(f"Unknown arch. Message: {arch}")
 
     def print_cache(self):
         print("Cache:")

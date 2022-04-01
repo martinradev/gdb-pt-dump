@@ -194,6 +194,9 @@ class PT_x86_Common_Backend():
 
 class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
 
+    def get_arch(self):
+        return "x86_64"
+
     def get_pde_shift(self, pse, pae):
         # Size is always 2MiB
         return 21
@@ -207,12 +210,12 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
             raise Exception("Paging is not enabled")
 
         pt_addr = None
-        if args.addr:
-            pt_addr = int(args.addr[0], 16)
+        if args.cr3:
+            pt_addr = int(args.cr3[0], 16)
         else:
             pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("unsigned long")))
             # TODO: Check if these attribute bits in the cr3 need to be respected.
-            pt_addr = pt_addr & (~0xfff)
+        pt_addr = pt_addr & (~0xfff)
 
         pse, pae = retrieve_pse_and_pae()
         pde_shift = self.get_pde_shift(pse=pse, pae=pae)
@@ -244,6 +247,9 @@ class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
         self.phys_mem = phys_mem
         return None
 
+    def get_arch(self):
+        return "x86_32"
+
     def get_pde_shift(self, pse, pae):
         if pse and pae:
             # PSE is ignored when PAE is available.
@@ -268,8 +274,8 @@ class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
             raise Exception("Paging is not enabled")
 
         pt_addr = None
-        if args.addr:
-            pt_addr = int(args.addr[0], 16)
+        if args.cr3:
+            pt_addr = int(args.cr3[0], 16)
         else:
             pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("unsigned long")))
             # TODO: Check if these attribute bits in the cr3 need to be respected.

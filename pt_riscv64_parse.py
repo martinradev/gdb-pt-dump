@@ -120,6 +120,9 @@ class PT_RiscV64_Backend(PTArchBackend):
     def __init__(self, phys_mem):
         self.phys_mem = phys_mem
 
+    def get_arch(self):
+        return "riscv64"
+
     def get_filter_is_writeable(self, has_superuser_filter, has_user_filter):
         return lambda p: p.w
 
@@ -148,7 +151,12 @@ class PT_RiscV64_Backend(PTArchBackend):
         raise exception(f"Uknown filter {filter_name}")
 
     def parse_tables(self, cache, args):
-        satp = int(gdb.parse_and_eval("$satp").cast(gdb.lookup_type("unsigned long")))
+        satp = args.satp
+
+        if satp:
+            satp = int(satp[0], 16)
+        else:
+            satp = int(gdb.parse_and_eval("$satp").cast(gdb.lookup_type("unsigned long")))
 
         all_blocks = None
 

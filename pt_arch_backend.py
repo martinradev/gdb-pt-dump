@@ -4,6 +4,10 @@ from abc import abstractmethod
 class PTArchBackend(ABC):
 
     @abstractmethod
+    def get_arch(self):
+        pass
+
+    @abstractmethod
     def get_filter_is_writeable(self, has_superuser_filter, has_user_filter):
         pass
 
