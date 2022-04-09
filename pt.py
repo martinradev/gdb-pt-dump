@@ -26,9 +26,11 @@ class VMPhysMem():
         res = gdb.execute(f"monitor gpa2hva {hex(phys_addr)}", to_string = True)
         try:
             hva = int(res.split(" ")[-1], 16)
+            return os.pread(self.file, len, hva)
         except:
-            raise OSError(f"Physical address ({hex(phys_addr)}, +{hex(len)}) is not accessible")
-        return os.pread(self.file, len, hva)
+            msg = f"Physical address ({hex(phys_addr)}, +{hex(len)}) is not accessible"
+            print(msg, file=sys.stderr)
+            raise OSError(msg)
 
 class PageTableDump(gdb.Command):
     """

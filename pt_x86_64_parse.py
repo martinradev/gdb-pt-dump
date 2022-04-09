@@ -10,7 +10,11 @@ def has_paging_enabled():
 
 def parse_pml4(phys_mem, addr, force_traverse_all=False, entry_size=8):
     entries = []
-    values = split_range_into_int_values(read_page(phys_mem, addr), entry_size)
+    entry_size = 8
+    try:
+        values = split_range_into_int_values(read_page(phys_mem, addr), entry_size)
+    except:
+        return entries
     pml4_cache = {}
     for u, value in enumerate(values):
         if (value & 0x1) != 0: # Page must be present
@@ -20,16 +24,19 @@ def parse_pml4(phys_mem, addr, force_traverse_all=False, entry_size=8):
                 pml4_cache[value] = entry
     return entries
 
-def parse_pml4es(phys_mem, pml4es, force_traverse_all=False, entry_size=8):
+def parse_pml4es(phys_mem, pml4es, force_traverse_all, entry_size):
     entries = []
     for pml4e in pml4es:
         pdpe = parse_pdp(phys_mem, pml4e, force_traverse_all, 4096, entry_size)
         entries.extend(pdpe)
     return entries
 
-def parse_pdp(phys_mem, pml4e, force_traverse_all, size=4096, entry_size=8):
+def parse_pdp(phys_mem, pml4e, force_traverse_all, size, entry_size):
     entries = []
-    values = split_range_into_int_values(phys_mem.read(pml4e.pdp, size), entry_size)
+    try:
+        values = split_range_into_int_values(phys_mem.read(pml4e.pdp, size), entry_size)
+    except:
+        return entries
     pdp_cache = {}
     for u, value in enumerate(values):
         if (value & 0x1) != 0:
@@ -43,8 +50,8 @@ def parse_pdpes(phys_mem, pdpes, force_traverse_all=False, entry_size=8):
     entries = []
     pages = []
     for pdpe in pdpes:
-        if pdpe.one_gig == False:
-            pdes = parse_pd(phys_mem, pdpe, force_traverse_all, entry_size)
+        if pdpe.large_page == False:
+            pdes = parse_pd(phys_mem, pdpe, force_traverse_all, entry_size, pde_shift)
             entries.extend(pdes)
         else:
             page = create_page_from_pdpe(pdpe)
@@ -53,7 +60,10 @@ def parse_pdpes(phys_mem, pdpes, force_traverse_all=False, entry_size=8):
 
 def parse_pd(phys_mem, pdpe, force_traverse_all, entry_size=8):
     entries = []
-    values = split_range_into_int_values(read_page(phys_mem, pdpe.pd), entry_size)
+    try:
+        values = split_range_into_int_values(read_page(phys_mem, pdpe.pd), entry_size)
+    except:
+        return entries
     pd_cache = {}
     for u, value in enumerate(values):
         if (value & 0x1) != 0:
@@ -77,7 +87,10 @@ def parse_pdes(phys_mem, pdes, entry_size=8):
 
 def parse_pt(phys_mem, pde, entry_size=8):
     entries = []
-    values = split_range_into_int_values(read_page(phys_mem, pde.pt), entry_size)
+    try:
+        values = split_range_into_int_values(read_page(phys_mem, pde.pt), entry_size)
+    except:
+        return entries
     for u, value in enumerate(values):
         if (value & 0x1) != 0:
             entry = PT_Entry(value, pde.virt_part, u)

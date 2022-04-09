@@ -83,19 +83,31 @@ def aarch64_parse_entries(phys_mem, tbl, as_size, granule, lvl):
     index_ranges_per_lvl = []
     try:
         if granule == PT_AARCH64_4KB_PAGE:
-            entries = split_range_into_int_values(read_page(phys_mem, tbl.pa), 8)
+            entries = []
+            try:
+                entries = split_range_into_int_values(read_page(phys_mem, tbl.pa), 8)
+            except:
+                pass
             target_address_low = 12
             last_level = 4
             sizes = [PT_SIZE_512GIB, PT_SIZE_1GIB, PT_SIZE_2MIB, PT_SIZE_4K]
             index_ranges_per_lvl = [(39, 47), (30, 38), (21, 29), (12, 20)]
         elif granule == PT_AARCH64_64KB_PAGE:
-            entries = split_range_into_int_values(read_64k_page(phys_mem, tbl.pa), 8)
+            entries = []
+            try:
+                entries = split_range_into_int_values(read_64k_page(phys_mem, tbl.pa), 8)
+            except:
+                pass
             target_address_low = 16
             last_level = 3
             sizes = [PT_SIZE_4TB, PT_SIZE_512MIB, PT_SIZE_64K]
             index_ranges_per_lvl = [(42, 48), (29, 41), (16, 28)]
         elif granule == PT_AARCH64_16KB_PAGE:
-            entries = read_16k_page(phys_mem, tbl.pa)
+            entries = []
+            try:
+                entries = read_16k_page(phys_mem, tbl.pa)
+            except:
+                pass
             target_address_low = 14
             last_level = 4
             sizes = [PT_SIZE_128TB, PT_SIZE_64GIB, PT_SIZE_32MIB, PT_SIZE_16K]
