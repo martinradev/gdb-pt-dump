@@ -24,12 +24,20 @@ class VMPhysMem():
 
     def read(self, phys_addr, len):
         res = gdb.execute(f"monitor gpa2hva {hex(phys_addr)}", to_string = True)
+
+        # It's not possible to pread large sizes, so let's break the request
+        # into a few smaller ones.
+        max_block_size = 1024 * 1024 * 256
         try:
             hva = int(res.split(" ")[-1], 16)
-            return os.pread(self.file, len, hva)
-        except:
-            msg = f"Physical address ({hex(phys_addr)}, +{hex(len)}) is not accessible"
-            print(msg, file=sys.stderr)
+            data = b""
+            for offset in range(0, len, max_block_size):
+                length_to_read = min(len - offset, max_block_size)
+                block = os.pread(self.file, length_to_read, hva + offset)
+                data += block
+            return data
+        except Exception as e:
+            msg = f"Physical address ({hex(phys_addr)}, +{hex(len)}) is not accessible. Reason: {e}. gpa2hva result: {res}"
             raise OSError(msg)
 
 class PageTableDump(gdb.Command):
