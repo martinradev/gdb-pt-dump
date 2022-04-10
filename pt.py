@@ -72,9 +72,9 @@ class PageTableDump(gdb.Command):
         -has ADDR
             Will filter-out virtual memory ranges which contain ADDR
         -before ADDR
-            Will filter-out virtual memory ranges which start before ADDR
+            Will select virtual memory ranges which start <ADDR
         -after ADDR
-            Will filter-out virtual memory ranges which start after ADDR
+            Will select virtual memory ranges which start >=ADDR
         -ss "STRING"
             Searches for the string STRING in the ranges after filtering
         -sb BYTESTRING
@@ -229,7 +229,16 @@ class PageTableDump(gdb.Command):
         page_ranges_filtered = None
         if requires_page_table_parsing:
             page_ranges = self.backend.parse_tables(self.cache, args)
-            page_ranges_filtered = list(filter(self.parse_filter_args(args), page_ranges))
+            compound_filter, (min_address, max_address) = self.parse_filter_args(args)
+            page_ranges_filtered = list(filter(compound_filter, page_ranges))
+            # Perform cut-off of start and end.
+            # Only the first and last page entry need to be potentially modified because they were already filtered
+            if len(page_ranges_filtered) >= 1:
+                if min_address:
+                    page_ranges_filtered[0].cut_after(min_address)
+                if max_address:
+                    page_ranges_filtered[-1].cut_before(max_address)
+
 
         if to_search:
             if page_ranges_filtered:
@@ -289,17 +298,27 @@ class PageTableDump(gdb.Command):
 
     def parse_filter_args(self, args):
         filters = []
+        min_address = 0
+        max_address = 2 ** 64
         if args.range:
             filters.append(lambda page: page.va >= args.range[0] and page.va <= args.range[1])
+            min_address = max(args.range[0], min_address)
+            max_address = min(args.range[1], max_address)
 
         if args.has:
             filters.append(lambda page: args.has[0] >= page.va and args.has[0] < page.va + page.page_size)
 
         if args.after:
-            filters.append(lambda page: args.after[0] <= page.va)
+            filters.append(lambda page: args.after[0] < page.va + page.page_size)
+            min_address = max(args.after[0], min_address)
+        else:
+            min_address = None
 
         if args.before:
             filters.append(lambda page: args.before[0] > page.va)
+            max_address = min(args.before[0], max_address)
+        else:
+            max_address = None
 
         if args.filter:
             # First, we have to determine if user/superuser filter flag was set
@@ -338,6 +357,6 @@ class PageTableDump(gdb.Command):
                     print(f"Unknown filter: {f}")
                     return
 
-        return create_compound_filter(filters)
+        return (create_compound_filter(filters), (min_address, max_address))
 
 PageTableDump()

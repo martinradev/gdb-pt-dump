@@ -35,8 +35,8 @@ class PDP_Entry():
         self.cacheable = is_cacheable(value)
         self.accessed = is_accessed(value)
         self.virt_part = (index << 30) | parent_va
-        self.one_gig = is_one_gig(value) # This means it's a leaf
-        if self.one_gig:
+        self.large_page = is_large_page(value) # This means it's a leaf
+        if self.large_page:
             self.dirty = is_dirty(value)
             self.glob = True
             self.pd = extract_no_shift(value, 30, 51)
@@ -52,30 +52,31 @@ class PDP_Entry():
                f"WB:{int(self.writeback)} "
                f"UC:{int(not self.cacheable)} "
                f"A:{int(self.accessed)} ")
-        if self.one_gig:
+        if self.large_page:
                 res += (f"D:{int(self.dirty)} "
                         f"G:{int(self.glob)} "
                         f"NX:{int(self.nx)}")
         return res
 
 class PD_Entry():
-    def __init__(self, value, parent_va, index, is_x86_32_no_pae = False):
+    def __init__(self, value, parent_va, index, pde_shift):
         self.present = is_present(value)
         self.writeable = is_writeable(value)
         self.supervisor = is_supervisor(value)
         self.writeback = is_writeback(value)
         self.cacheable = is_cacheable(value)
         self.accessed = is_accessed(value)
-        shift = 21 if not is_x86_32_no_pae else 22
-        self.virt_part = (index << shift) | parent_va
-        self.two_mb = is_two_mb(value) # This means it's a leaf
-        if self.two_mb:
+        self.virt_part = (index << pde_shift) | parent_va
+        self.big_page = is_big_page(value) # This means it's a leaf
+        if self.big_page:
             self.dirty = is_dirty(value)
             self.glob = True
             self.pat = is_pat(value)
+            # TODO
             self.pt = extract_no_shift(value, 20, 51)
         else:
             self.pt = get_pdp_base(value)
+        self.page_size = 1 << pde_shift
         self.nx = is_nx(value)
 
     def __str__(self):
@@ -86,7 +87,7 @@ class PD_Entry():
                f"WB:{int(self.writeback)} "
                f"UC:{int(not self.cacheable)} "
                f"A:{int(self.accessed)} ")
-        if self.two_mb:
+        if self.big_page:
                 res += (f"D:{int(self.dirty)} "
                         f"G:{int(self.glob)} "
                         f"NX:{int(self.nx)}")
@@ -137,7 +138,7 @@ def create_page_from_pte(pte: PT_Entry) -> Page:
 def create_page_from_pde(pde: PD_Entry) -> Page:
     page = Page()
     page.va = make_canonical(pde.virt_part)
-    page.page_size = 2 * 1024 * 1024
+    page.page_size = pde.page_size
     page.w = pde.writeable
     page.x = not pde.nx
     page.s = pde.supervisor
@@ -190,10 +191,12 @@ def is_nx(addr):
 def get_pdp_base(addr):
     return extract_no_shift(addr, 12, 51)
 
-def is_one_gig(addr):
+# One gigabyte-large page.
+def is_large_page(addr):
     return (addr >> 0x7) & 0x1
 
-def is_two_mb(addr):
+# Either two-mb- or four-mb-large page.
+def is_big_page(addr):
     return (addr >> 7) & 0x1
 
 def is_pat(addr):

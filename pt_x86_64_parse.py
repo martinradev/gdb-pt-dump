@@ -4,11 +4,17 @@ from pt_common import *
 from pt_constants import *
 from pt_arch_backend import PTArchBackend
 
+def retrieve_pse_and_pae():
+    uses_pae = ((int(gdb.parse_and_eval("$cr4").cast(gdb.lookup_type("unsigned long"))) >> 5) & 0x1) == 0x1
+    uses_pse = ((int(gdb.parse_and_eval("$cr4").cast(gdb.lookup_type("unsigned long"))) >> 4) & 0x1) == 0x1
+    return (uses_pse, uses_pae)
+
+
 def has_paging_enabled():
     uses_paging = ((int(gdb.parse_and_eval("$cr0").cast(gdb.lookup_type("unsigned long"))) >> 31) & 0x1) == 0x1
     return uses_paging
 
-def parse_pml4(phys_mem, addr, force_traverse_all=False, entry_size=8):
+def parse_pml4(phys_mem, addr, force_traverse_all):
     entries = []
     entry_size = 8
     try:
@@ -46,7 +52,7 @@ def parse_pdp(phys_mem, pml4e, force_traverse_all, size, entry_size):
                 pdp_cache[value] = entry
     return entries
 
-def parse_pdpes(phys_mem, pdpes, force_traverse_all=False, entry_size=8):
+def parse_pdpes(phys_mem, pdpes, force_traverse_all, entry_size, pde_shift):
     entries = []
     pages = []
     for pdpe in pdpes:
@@ -58,7 +64,7 @@ def parse_pdpes(phys_mem, pdpes, force_traverse_all=False, entry_size=8):
             pages.append(page)
     return entries, pages
 
-def parse_pd(phys_mem, pdpe, force_traverse_all, entry_size=8):
+def parse_pd(phys_mem, pdpe, force_traverse_all, entry_size, pde_shift):
     entries = []
     try:
         values = split_range_into_int_values(read_page(phys_mem, pdpe.pd), entry_size)
@@ -68,7 +74,7 @@ def parse_pd(phys_mem, pdpe, force_traverse_all, entry_size=8):
     for u, value in enumerate(values):
         if (value & 0x1) != 0:
             if force_traverse_all or value not in pd_cache:
-                entry = PD_Entry(value, pdpe.virt_part, u, entry_size == 4)
+                entry = PD_Entry(value, pdpe.virt_part, u, pde_shift)
                 entries.append(entry)
                 pd_cache[value] = entry
     return entries
@@ -77,7 +83,7 @@ def parse_pdes(phys_mem, pdes, entry_size=8):
     entries = []
     pages = []
     for pde in pdes:
-        if pde.two_mb == False:
+        if pde.big_page == False:
             ptes = parse_pt(phys_mem, pde, entry_size)
             entries.extend(ptes)
         else:
@@ -98,6 +104,7 @@ def parse_pt(phys_mem, pde, entry_size=8):
     return entries
 
 class PT_x86_Common_Backend():
+ 
     def get_filter_is_writeable(self, has_superuser_filter, has_user_filter):
         return lambda p: p.w
 
@@ -187,6 +194,10 @@ class PT_x86_Common_Backend():
 
 class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
 
+    def get_pde_shift(self, pse, pae):
+        # Size is always 2MiB
+        return 21
+
     def __init__(self, phys_mem):
         self.phys_mem = phys_mem
 
@@ -203,18 +214,22 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
             # TODO: Check if these attribute bits in the cr3 need to be respected.
             pt_addr = pt_addr & (~0xfff)
 
+        pse, pae = retrieve_pse_and_pae()
+        pde_shift = self.get_pde_shift(pse=pse, pae=pae)
+
         page_ranges = None
         if pt_addr in cache:
             page_ranges = cache[pt_addr]
         else:
+            entry_size = 8
             pml4es = parse_pml4(self.phys_mem, pt_addr, args.force_traverse_all)
-            pdpes = parse_pml4es(self.phys_mem, pml4es, args.force_traverse_all)
-            pdes, one_gig_pages = parse_pdpes(self.phys_mem, pdpes, args.force_traverse_all)
-            ptes, two_mb_pages = parse_pdes(self.phys_mem, pdes)
+            pdpes = parse_pml4es(self.phys_mem, pml4es, args.force_traverse_all, entry_size)
+            pdes, large_pages = parse_pdpes(self.phys_mem, pdpes, args.force_traverse_all, entry_size, pde_shift)
+            ptes, big_pages = parse_pdes(self.phys_mem, pdes)
             small_pages = []
             for pte in ptes:
                 small_pages.append(create_page_from_pte(pte))
-            page_ranges = optimize(one_gig_pages, two_mb_pages, small_pages, rwxs_semantically_similar)
+            page_ranges = optimize(large_pages, big_pages, small_pages, rwxs_semantically_similar)
 
         # Cache the page table if caching is set.
         # Caching happens before the filter is applied.
@@ -226,10 +241,26 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
 class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
 
     def __init__(self, phys_mem):
-        uses_pae = ((int(gdb.parse_and_eval("$cr4").cast(gdb.lookup_type("unsigned long"))) >> 5) & 0x1) == 0x1
-        self.pae = uses_pae
         self.phys_mem = phys_mem
         return None
+
+    def get_pde_shift(self, pse, pae):
+        if pse and pae:
+            # PSE is ignored when PAE is available.
+            return 21
+        elif not pse and pae:
+            # Only PAE. Page size is 2MiB
+            return 21
+        elif pse and not pae:
+            # Only PSE. Page size is 4MiB.
+            return 22
+        elif not pse and not pae:
+            # Default.
+            # Manual suggests this shouldn't be possible because the page extension bit in the pde would be ignored.
+            # Yet, QEMU doesn't respect this rule and here we are.
+            return 21
+        else:
+            raise Exception("Unreachable")
 
     def parse_tables(self, cache, args):
         # Check that paging is enabled, otherwise no point to continue.
@@ -244,23 +275,28 @@ class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
             # TODO: Check if these attribute bits in the cr3 need to be respected.
             pt_addr = pt_addr & (~0xfff)
 
+        pse, pae = retrieve_pse_and_pae()
+        pde_shift = self.get_pde_shift(pse=pse, pae=pae)
+
         page_ranges = None
         if pt_addr in cache:
             page_ranges = cache[pt_addr]
         else:
             pdpes = None
-            entry_size = 8 if self.pae else 4
-            if self.pae:
+            entry_size = 8 if pae else 4
+            if pae:
                 dummy_pml4 = PML4_Entry(pt_addr, 0)
-                pdpes = parse_pdp(self.phys_mem, dummy_pml4, args.force_traverse_all, 4 * entry_size, entry_size)
+                num_entries = 4
+                pdpes = parse_pdp(self.phys_mem, dummy_pml4, args.force_traverse_all, num_entries * entry_size, entry_size)
             else:
                 pdpes = [PDP_Entry(pt_addr, 0, 0)]
-            pdes, one_gig_pages = parse_pdpes(self.phys_mem, pdpes, args.force_traverse_all, entry_size)
-            ptes, two_mb_pages = parse_pdes(self.phys_mem, pdes, entry_size)
+
+            pdes, large_pages = parse_pdpes(self.phys_mem, pdpes, args.force_traverse_all, entry_size, pde_shift)
+            ptes, big_pages = parse_pdes(self.phys_mem, pdes, entry_size)
             small_pages = []
             for pte in ptes:
                 small_pages.append(create_page_from_pte(pte))
-            page_ranges = optimize(one_gig_pages, two_mb_pages, small_pages, rwxs_semantically_similar)
+            page_ranges = optimize(large_pages, big_pages, small_pages, rwxs_semantically_similar)
 
         # Cache the page table if caching is set.
         # Caching happens before the filter is applied.

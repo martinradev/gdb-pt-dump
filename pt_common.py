@@ -46,7 +46,6 @@ PagePrintSettings = namedtuple('PagePrintSettings', ['va_len', 'page_size_len'])
 class Page():
     def __init__(self):
         self.va = None
-        self.pa = None
         self.page_size = None
         self.w = None
         self.x = None
@@ -55,6 +54,42 @@ class Page():
         self.uc = None
         self.phys = None
         self.sizes = None
+
+    def cut_after(self, cut_addr):
+        i = 0
+        off = 0
+        while i < len(self.phys):
+            if cut_addr < self.va + off + self.sizes[i]:
+                break
+            off += self.sizes[i]
+            i += 1
+        if i > 0:
+            self.phys = self.phys[i:]
+            self.sizes = self.sizes[i:]
+        delta = 0
+        if len(self.phys) >= 1 and cut_addr >= self.va:
+            delta = cut_addr - (self.va + off)
+            self.sizes[0] = self.sizes[0] - delta
+            self.phys[0] = self.phys[0] + delta
+        self.page_size = self.page_size - delta - off
+        self.va = max(self.va, cut_addr)
+
+    def cut_before(self, cut_addr):
+        i = len(self.phys) - 1
+        off = 0
+        while i >= 0:
+            if self.va < cut_addr:
+                break
+            off += self.sizes[i]
+            i -= 1
+        if i > 0:
+            self.phys = self.phys[:i]
+            self.sizes = self.sizes[:i]
+        delta = 0
+        if len(self.phys) >= 1:
+            delta = max(0, (self.va + self.page_size - off) - cut_addr)
+            self.sizes[-1] = self.sizes[-1] - delta
+        self.page_size = min(self.page_size, cut_addr - self.va)
 
     def __str__(self):
         conf = PagePrintSettings(va_len = 18, page_size_len = 8)

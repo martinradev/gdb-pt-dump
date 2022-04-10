@@ -35,6 +35,12 @@ class Riscv64_Page():
             memory += phys_mem.read(phys_range_start, phys_range_size)
         return memory
 
+    def cut_before(self, va):
+        print("cut_before not supported")
+
+    def cut_after(self, va):
+        print("cut_after not supported")
+
 def riscv64_semantically_similar(p1, p2) -> bool:
     return p1.x == p2.x and p1.w == p2.w and p1.r == p2.r and p1.s == p2.s
 

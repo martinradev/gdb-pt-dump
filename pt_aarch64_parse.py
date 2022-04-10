@@ -35,6 +35,12 @@ class Aarch64_Block():
         self.phys = [phys]
         self.sizes = [size]
 
+    def cut_before(self, va):
+        print("cut_before is not implemented")
+
+    def cut_after(self, va):
+        print("cut_after is not implemented")
+
     def block_to_str(self, max_va_len, max_page_size_len):
         fmt = f"{{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
         uspace_writeable = is_user_writeable(self)
