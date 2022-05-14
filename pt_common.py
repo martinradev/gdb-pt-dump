@@ -32,6 +32,9 @@ def read_arbitrary_page(phys_memory, addr, page_size):
 def read_page(phys_memory, addr):
     return read_arbitrary_page(phys_memory, addr, 4096)
 
+def read_16k_page(phys_memory, addr):
+    return read_arbitrary_page(phys_memory, addr, 16 * 1024)
+
 def read_64k_page(phys_memory, addr):
     return read_arbitrary_page(phys_memory, addr, 64 * 1024)
 

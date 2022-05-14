@@ -111,7 +111,7 @@ def aarch64_parse_entries(phys_mem, tbl, as_size, granule, lvl):
         elif granule == PT_AARCH64_16KB_PAGE:
             entries = []
             try:
-                entries = read_16k_page(phys_mem, tbl.pa)
+                entries = split_range_into_int_values(read_16k_page(phys_mem, tbl.pa), 8)
             except:
                 pass
             target_address_low = 14
@@ -129,10 +129,12 @@ def aarch64_parse_entries(phys_mem, tbl, as_size, granule, lvl):
         is_valid = bool(pa & 0x1)
         if is_valid:
             bit1 = extract(pa, 1, 1)
+            bit1and2 = extract(pa, 0, 1)
             if (lvl == 4 and bit1 == 0):
                 continue
+            # TODO: Write comment about contiguous bit
             contiguous_bit = extract(pa, 52, 52)
-            is_block_or_page = (lvl < last_level and bit1 == 0) or lvl == last_level or contiguous_bit
+            is_block_or_page = (lvl < last_level and bit1and2 == 1) or lvl == last_level or contiguous_bit
             is_table = (not is_block_or_page)
             address_contrib = (i << (index_ranges_per_lvl[lvl-1][0]))
             child_va = tbl.va | address_contrib
@@ -273,7 +275,7 @@ class PT_Aarch64_Backend(PTArchBackend):
             elif tg0 == 0b10:
                 tb0_granule_size = PT_AARCH64_16KB_PAGE
             else:
-                raise Expcetion(f"Unknown TG0 value {tg0}")
+                raise Exception(f"Unknown TG0 value {tg0}")
             tb0_sz = 64 - a64_def.pt_tcr.T0SZ
             all_blocks_0 = arm_traverse_table(self.phys_mem, tb0, tb0_sz, tb0_granule_size, 0)
             all_blocks_0 = optimize([], [], all_blocks_0, aarch64_semantically_similar)
@@ -290,7 +292,7 @@ class PT_Aarch64_Backend(PTArchBackend):
             elif tg1 == 0b01:
                 tb1_granule_size = PT_AARCH64_16KB_PAGE 
             else:
-                raise Expcetion(f"Unknown TG1 value {tg1}")
+                raise Exception(f"Unknown TG1 value {tg1}")
             tb1_sz = 64 - a64_def.pt_tcr.T1SZ
             all_blocks_1 = arm_traverse_table(self.phys_mem, tb1, tb1_sz, tb1_granule_size, 1)
             all_blocks_1 = optimize([], [], all_blocks_1, aarch64_semantically_similar)
