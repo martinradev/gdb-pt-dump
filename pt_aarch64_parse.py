@@ -64,9 +64,14 @@ class Aarch64_Block():
             memory += phys_mem.read(phys_range_start, phys_range_size)
         return memory
 
-
     def __str__(self):
         return self.block_to_str(18, 8)
+
+    def pwndbg_is_writeable(self):
+        return is_user_writeable(self) or is_kernel_writeable(self)
+
+    def pwndbg_is_executable(self):
+        return is_user_executable(self) or is_kernel_executable(self)
 
 class Aarch64_Table():
     def __init__(self, pa, va, lvl, pxn, xn, permissions):
