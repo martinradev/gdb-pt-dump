@@ -104,6 +104,12 @@ class Page():
             memory += phys_mem.read(phys_range_start, phys_range_size)
         return memory
 
+    def pwndbg_is_writeable(self):
+        return self.w
+
+    def pwndbg_is_executable(self):
+        return self.x
+
 def page_to_str(page: Page, conf: PagePrintSettings):
     prefix = ""
     if not page.s:
