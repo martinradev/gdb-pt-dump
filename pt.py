@@ -156,8 +156,6 @@ class PageTableDump(gdb.Command):
         self.pid = -1
 
     def lazy_init(self):
-        print("lazy init")
-
         # Get quick access to physical memory.
         proc = os.popen("pgrep qemu-system")
         self.pid = int(proc.read().strip(), 10)
