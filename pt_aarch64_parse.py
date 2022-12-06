@@ -93,7 +93,18 @@ def aarch64_parse_entries(phys_mem, tbl, as_size, granule, lvl):
     sizes = None
     index_ranges_per_lvl = []
     try:
-        if granule == PT_AARCH64_4KB_PAGE:
+        # `as_size == 25` implies 39-bit VAs, which only use 3-level page tables
+        if granule == PT_AARCH64_4KB_PAGE and as_size == 39:
+            entries = []
+            try:
+                entries = split_range_into_int_values(read_page(phys_mem, tbl.pa), 8)
+            except:
+                pass
+            target_address_low = 12
+            last_level = 3
+            sizes = [PT_SIZE_1GIB, PT_SIZE_2MIB, PT_SIZE_4K]
+            index_ranges_per_lvl = [(30, 38), (21, 29), (12, 20)]
+        elif granule == PT_AARCH64_4KB_PAGE:
             entries = []
             try:
                 entries = split_range_into_int_values(read_page(phys_mem, tbl.pa), 8)
