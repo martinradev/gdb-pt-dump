@@ -2,6 +2,8 @@ import gdb
 import sys
 import argparse
 import os
+import subprocess
+import tempfile
 
 # A hack to import the other files without placing the files in the modules directory.
 dirname = os.path.dirname(os.path.abspath(__file__))
@@ -11,6 +13,43 @@ from pt_common import *
 from pt_x86_64_parse import *
 from pt_aarch64_parse import *
 from pt_riscv64_parse import *
+
+
+def _search_pids_for_file(pids, filename):
+    for pid in pids:
+        fd_dir = f"/proc/{pid}/fd"
+
+        try:
+            for fd in os.listdir(fd_dir):
+                if os.readlink(f"{fd_dir}/{fd}") == filename:
+                    return pid
+        except FileNotFoundError:
+            # Either the process has gone or fds are changing, not our pid
+            pass
+
+    return None
+
+def get_qemu_pid():
+    out = subprocess.check_output(["pgrep", "qemu-system"], encoding="utf8")
+    pids = out.strip().split('\n')
+
+    if len(pids) == 1:
+        return int(pids[0], 10)
+
+    # We add a chardev file backend (we dont add a fronted, so it doesn't affect
+    # the guest). We can then look through proc to find which process has the file
+    # open. This approach is agnostic to namespaces (pid, network and mount).
+    chardev_id = "gdb-pt-dump"
+    with tempfile.NamedTemporaryFile() as t:
+        gdb.execute(f"monitor chardev-add file,id={chardev_id},path={t.name}")
+        ret = _search_pids_for_file(pids, t.name)
+        gdb.execute(f"monitor chardev-remove {chardev_id}")
+
+    if not ret:
+        raise Exception("Could not find qemu pid")
+
+    return int(ret, 10)
+
 
 class VMPhysMem():
     def __init__(self, pid):
@@ -157,9 +196,7 @@ class PageTableDump(gdb.Command):
 
     def lazy_init(self):
         # Get quick access to physical memory.
-        proc = os.popen("pgrep qemu-system")
-        self.pid = int(proc.read().strip(), 10)
-        proc.close()
+        self.pid = get_qemu_pid()
         self.phys_mem = VMPhysMem(self.pid)
 
         self.backend = None
@@ -294,18 +331,13 @@ class PageTableDump(gdb.Command):
             self.backend.print_table(page_ranges_filtered)
 
     def invoke(self, arg, from_tty):
-        curr_proc = os.popen("pgrep qemu-system")
-        curr_pid = None
         try:
-            curr_pid = int(curr_proc.read().strip(), 10)
+            curr_pid = get_qemu_pid()
+            if curr_pid != self.pid:
+                self.lazy_init()
         except:
             print("Cannot get qemu-system pid")
             return
-        finally:
-            if curr_proc:
-                curr_proc.close()
-        if curr_pid != self.pid:
-            self.lazy_init()
 
         argv = gdb.string_to_argv(arg)
         args = None
