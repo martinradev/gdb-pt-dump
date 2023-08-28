@@ -28,6 +28,9 @@ def _search_pids_for_file(pids, filename):
         except FileNotFoundError:
             # Either the process has gone or fds are changing, not our pid
             pass
+        except PermissionError:
+            # Evade processes owned by other users
+            pass
 
     return None
 
