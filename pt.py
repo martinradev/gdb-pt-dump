@@ -4,6 +4,8 @@ import argparse
 import os
 import subprocess
 import tempfile
+import string
+import random
 
 # A hack to import the other files without placing the files in the modules directory.
 dirname = os.path.dirname(os.path.abspath(__file__))
@@ -39,7 +41,7 @@ def get_qemu_pid():
     # We add a chardev file backend (we dont add a fronted, so it doesn't affect
     # the guest). We can then look through proc to find which process has the file
     # open. This approach is agnostic to namespaces (pid, network and mount).
-    chardev_id = "gdb-pt-dump"
+    chardev_id = "gdb-pt-dump" + '-' + ''.join(random.choices(string.ascii_letters, k=16))
     with tempfile.NamedTemporaryFile() as t:
         gdb.execute(f"monitor chardev-add file,id={chardev_id},path={t.name}")
         ret = _search_pids_for_file(pids, t.name)
