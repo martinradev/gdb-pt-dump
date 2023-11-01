@@ -5,5 +5,5 @@ import os
 dirname = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(1, dirname)
 
-from pt.pt import PageTableDump
+from pt import PageTableDump
 PageTableDump()
