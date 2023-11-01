@@ -7,10 +7,6 @@ import tempfile
 import string
 import random
 
-# # A hack to import the other files without placing the files in the modules directory.
-# dirname = os.path.dirname(os.path.abspath(__file__))
-# sys.path.insert(1, dirname)
-
 from pt.pt_common import *
 from pt.pt_x86_64_parse import *
 from pt.pt_aarch64_parse import *
@@ -123,7 +119,7 @@ class PageTableDump(gdb.Command):
         -s8 VALUE
             Searches for the value VALUE in the ranges after filtering
             VALUE should fit in 8 bytes.
-        -s4 VALUE 
+        -s4 VALUE
             Searches for the value VALUE in the ranges after filtering
             VALUE should fit in 4 bytes.
         -align ALIGNMENT [OFFSET]
@@ -427,5 +423,3 @@ class PageTableDump(gdb.Command):
                     return
 
         return (create_compound_filter(filters), (min_address, max_address))
-
-PageTableDump()
