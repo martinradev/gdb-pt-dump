@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "pt"
+version = "1.0.0"
+description = "`gdb-pt-dump` is a gdb script to examine the address space of a QEMU-based virtual machine."
+authors = ["martinradev <martin.b.radev@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [
+    { include = "pt" },
+]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

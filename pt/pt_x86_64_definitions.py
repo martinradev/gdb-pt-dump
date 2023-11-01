@@ -1,4 +1,4 @@
-from pt_common import *
+from pt.pt_common import *
 
 class PML4_Entry():
     def __init__(self, value, index):

@@ -1,7 +1,7 @@
-from pt_common import *
-import pt_aarch64_definitions as a64_def
-from pt_arch_backend import PTArchBackend
-from pt_constants import *
+from pt.pt_common import *
+import pt.pt_aarch64_definitions as a64_def
+from pt.pt_arch_backend import PTArchBackend
+from pt.pt_constants import *
 
 PT_AARCH64_4KB_PAGE  = PT_SIZE_4K
 PT_AARCH64_16KB_PAGE = PT_SIZE_16K

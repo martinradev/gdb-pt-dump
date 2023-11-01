@@ -7,14 +7,14 @@ import tempfile
 import string
 import random
 
-# A hack to import the other files without placing the files in the modules directory.
-dirname = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(1, dirname)
+# # A hack to import the other files without placing the files in the modules directory.
+# dirname = os.path.dirname(os.path.abspath(__file__))
+# sys.path.insert(1, dirname)
 
-from pt_common import *
-from pt_x86_64_parse import *
-from pt_aarch64_parse import *
-from pt_riscv64_parse import *
+from pt.pt_common import *
+from pt.pt_x86_64_parse import *
+from pt.pt_aarch64_parse import *
+from pt.pt_riscv64_parse import *
 
 
 def _search_pids_for_file(pids, filename):
