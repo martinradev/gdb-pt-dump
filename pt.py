@@ -62,7 +62,7 @@ class VMPhysMem():
         self.file = os.open(f"/proc/{pid}/mem", os.O_RDONLY)
         self.mem_size = os.fstat(self.file).st_size
 
-    def __close__(self):
+    def __del__(self):
         if self.file:
             os.close(self.file)
 
