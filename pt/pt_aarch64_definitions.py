@@ -1,4 +1,4 @@
-from pt_register import *
+from pt.pt_register import *
 
 # Used the `Armv8, for Armv8-A architecture profile` manual.
 # I hope this doesn't break any license. Please don't sue :(

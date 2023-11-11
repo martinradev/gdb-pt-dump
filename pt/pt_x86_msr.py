@@ -1,4 +1,4 @@
-from pt_register import *
+from pt.pt_register import *
 
 class PT_CR0(PT_Register):
     def __init__(self):

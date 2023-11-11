@@ -1,8 +1,8 @@
-from pt_x86_64_definitions import *
-import pt_x86_msr as x86_msr
-from pt_common import *
-from pt_constants import *
-from pt_arch_backend import PTArchBackend
+from pt.pt_x86_64_definitions import *
+import pt.pt_x86_msr as x86_msr
+from pt.pt_common import *
+from pt.pt_constants import *
+from pt.pt_arch_backend import PTArchBackend
 
 def retrieve_pse_and_pae():
     uses_pae = ((int(gdb.parse_and_eval("$cr4").cast(gdb.lookup_type("unsigned long"))) >> 5) & 0x1) == 0x1

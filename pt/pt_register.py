@@ -1,6 +1,6 @@
 import gdb
 from collections import namedtuple
-from pt_common import *
+from pt.pt_common import *
 
 PT_Register_Range = namedtuple('PT_Register_Range', ['name', 'low', 'high', 'func'])
 

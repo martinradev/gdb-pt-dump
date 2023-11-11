@@ -1,6 +1,6 @@
-from pt_common import *
-from pt_arch_backend import PTArchBackend
-from pt_constants import *
+from pt.pt_common import *
+from pt.pt_arch_backend import PTArchBackend
+from pt.pt_constants import *
 
 def get_address_space_size_from_mode(mode_value):
     if mode_value == 8:
