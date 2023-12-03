@@ -183,7 +183,8 @@ class PT_x86_Common_Backend():
                 search_res = next(search_res_iter)
                 stdout_output += "Found phys map base:\n"
                 phys_map_virt_base = search_res[0] - found_page.phys[0]
-                stdout_output += "\tVirt: " + hex(phys_map_virt_base) + " in " + str(search_res[1]) + "\n"
+                phys_map_range = next(range for range in table if range.va >= phys_map_virt_base and phys_map_virt_base < range.va + range.page_size)
+                stdout_output += "\tVirt: " + hex(phys_map_virt_base) + " in " + str(phys_map_range) + "\n"
                 kaslr_addresses.append(phys_map_virt_base)
         else:
             stdout_output = "Failed to find KASLR info"
