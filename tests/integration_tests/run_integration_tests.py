@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pytest
 
 import subprocess
 import socket
@@ -8,6 +8,8 @@ import copy
 import re
 import json
 import tempfile
+import pytest
+import sys
 
 _DEFAULT_QEMU_MONITOR_PORT=55555
 _DEFAULT_QEMU_GDB_PORT=1234
@@ -20,6 +22,12 @@ class ImageContainer:
     def get_linux_x86_64(self):
         return os.path.join(self.images_dir, "linux_x86_64")
 
+    def get_custom_kernels_x86_64(self):
+        return os.path.join(self.images_dir, "custom_kernels", "x86_64")
+
+    def get_custom_kernels_golden_images_x86_64(self):
+        return os.path.join(self.images_dir, "custom_kernels_golden_images", "x86_64")
+
 class VM:
     def __init__(self):
         self.vm_proc = None
@@ -29,6 +37,18 @@ class VM:
 
     def start(self, cmd):
         self.vm_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def wait_for_string_on_line(self, string):
+        line = b""
+        while True:
+            b = self.vm_proc.stdout.read(1)
+            if b == b"":
+                continue
+            line += b
+            if b == b"\n":
+                if line[:-1] == string:
+                    return
+                line = b""
 
     def wait_for_shell(self, shell_symbol="~"):
         line = b""
@@ -54,9 +74,10 @@ class VM:
         return self.vm_proc.poll() == None
 
 class VM_X86_64(VM):
-    def __init__(self, image_dir):
+    def __init__(self, image_dir, fda_name=None):
         super().__init__()
         self.image_dir = image_dir
+        self.fda_name = fda_name
 
     def start(self, memory_mib=64, kvm=False, smep=True, smap=True, kaslr=True, svm=False, num_cores=1):
         cmd = []
@@ -83,21 +104,25 @@ class VM_X86_64(VM):
 
         cmd.extend(["-cpu", ",".join(cpu_options)])
 
-        kernel_image = os.path.join(self.image_dir, "kernel.img")
-        cmd.extend(["-kernel", kernel_image])
+        if self.fda_name == None:
+            kernel_image = os.path.join(self.image_dir, "kernel.img")
+            cmd.extend(["-kernel", kernel_image])
 
-        initrd_image = os.path.join(self.image_dir, "initrd.img")
-        cmd.extend(["-initrd", initrd_image])
+            initrd_image = os.path.join(self.image_dir, "initrd.img")
+            cmd.extend(["-initrd", initrd_image])
+
+            boot_string = "console=ttyS0 oops=panic ip=dhcp root=/dev/ram rdinit=/init quiet"
+            if kaslr:
+                boot_string += " kaslr"
+            else:
+                boot_string += " nokaslr"
+
+            cmd.extend(["-append", boot_string])
+        else:
+            # This path is taken for the custom images
+            cmd.extend(["-fda", os.path.join(self.image_dir, self.fda_name)])
 
         cmd.extend(["-m", str(memory_mib)])
-
-        boot_string = "console=ttyS0 oops=panic ip=dhcp root=/dev/ram rdinit=/init quiet"
-        if kaslr:
-            boot_string += " kaslr"
-        else:
-            boot_string += " nokaslr"
-
-        cmd.extend(["-append", boot_string])
 
         cmd.extend(["-qmp", f"tcp:localhost:{_DEFAULT_QEMU_MONITOR_PORT},server,nowait"])
 
@@ -668,8 +693,38 @@ def test_pt_kaslr_x86():
         del gdb
         vm.stop()
 
+def get_x86_64_binary_names():
+    image_folder = ImageContainer().get_custom_kernels_x86_64()
+    files = [file for file in os.listdir(image_folder) if file.endswith(".bin")]
+    return files
+
+@pytest.mark.parametrize("binary_name", get_x86_64_binary_names())
+def test_golden_image_x86_64(request, binary_name):
+    vm = VM_X86_64(image_dir = ImageContainer().get_custom_kernels_x86_64(), fda_name = binary_name)
+    vm.start()
+    vm.wait_for_string_on_line(b"Done")
+
+    test_name = request.node.name
+
+    gdb = GdbCommandExecutor(_DEFAULT_QEMU_GDB_PORT)
+    generated_image_name = "/tmp/.gdb_pt_dump_{}".format(binary_name)
+    print("Generated image path is {}".format(generated_image_name))
+    gdb.run_cmd("pt -o {}".format(generated_image_name))
+
+    generated_data = None
+    with open(generated_image_name, "r") as generated_file:
+        generated_data = generated_file.read()
+
+    golden_image = os.path.join(ImageContainer().get_custom_kernels_golden_images_x86_64(), binary_name)
+    expected_data = None
+    with open(golden_image, "r") as golden_image_file:
+        expected_data = golden_image_file.read()
+
+    assert(expected_data == generated_data)
+
 if __name__ == "__main__":
     print("This code should be invoked via 'pytest':", file=sys.stderr)
     print("")
     print("    pytest run_integration_tests.py")
     print("")
+
