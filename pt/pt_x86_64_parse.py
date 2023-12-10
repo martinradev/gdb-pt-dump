@@ -3,12 +3,18 @@ import pt.pt_x86_msr as x86_msr
 from pt.pt_common import *
 from pt.pt_constants import *
 from pt.pt_arch_backend import PTArchBackend
+from abc import ABC
+from abc import abstractmethod
 
-def retrieve_pse_and_pae():
-    uses_pae = ((int(gdb.parse_and_eval("$cr4").cast(gdb.lookup_type("unsigned long"))) >> 5) & 0x1) == 0x1
+import math
+
+def retrieve_pse():
     uses_pse = ((int(gdb.parse_and_eval("$cr4").cast(gdb.lookup_type("unsigned long"))) >> 4) & 0x1) == 0x1
-    return (uses_pse, uses_pae)
+    return uses_pse
 
+def retrieve_pae():
+    uses_pae = ((int(gdb.parse_and_eval("$cr4").cast(gdb.lookup_type("unsigned long"))) >> 5) & 0x1) == 0x1
+    return uses_pae
 
 def has_paging_enabled():
     uses_paging = ((int(gdb.parse_and_eval("$cr0").cast(gdb.lookup_type("unsigned long"))) >> 31) & 0x1) == 0x1
@@ -155,6 +161,59 @@ class PT_x86_Common_Backend():
         print(x86_msr.pt_cr0.check())
         print(x86_msr.pt_cr4.check())
 
+    @abstractmethod
+    def get_arch(self):
+        raise NotImplementedError("")
+
+    def walk(self, va):
+
+        if has_paging_enabled() == False:
+            raise Exception("Paging is not enabled")
+
+        entry_size = self.get_entry_size()
+        num_entries_per_page = int(4096 / entry_size)
+        bits_per_level = int(math.log2(num_entries_per_page))
+
+        pse = retrieve_pse()
+        pse_ignore = self.get_arch() == "x86_64"
+
+        pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("unsigned long")))
+
+        pt_walk = PageTableWalkInfo(va)
+        pt_walk.add_register_stage("CR3", pt_addr)
+
+        top_va = None
+        stages = None
+        if self.get_arch() == "x86_64":
+            stages = ["PML4", "PDP", "PD", "PT"]
+            top_va_bit = 47
+        else:
+            stages = ["PD", "PT"]
+            top_va_bit = 31
+
+        cur_phys_addr = pt_addr
+        for (stage_index, stage_str) in enumerate(stages):
+            page_pa = cur_phys_addr & ~0xFFF
+            entry_index = extract(va, top_va_bit - bits_per_level + 1, top_va_bit)
+            entry_page_pa = page_pa + entry_index * entry_size
+            entry_value = int.from_bytes(self.phys_mem.read(entry_page_pa, entry_size), 'little')
+            entry_value_pa_no_meta = extract_no_shift(entry_value, 12, 47)
+            meta_bits = extract_no_shift(entry_value, 0, 11)
+
+            pt_walk.add_stage(stage_str, entry_index, entry_value_pa_no_meta, meta_bits)
+
+            if not is_present(entry_value):
+                pt_walk.set_faulted()
+                break
+
+            if is_big_page(entry_value) and (pse or pse_ignore):
+                break
+
+            cur_phys_addr = entry_value
+            top_va_bit = top_va_bit - bits_per_level
+
+        return pt_walk
+
     def print_kaslr_information(self, table, should_print=True):
         potential_base_filter = lambda p: p.x and p.s and p.phys[0] % PT_SIZE_2MIB == 0
         tmp = list(filter(potential_base_filter, table))
@@ -205,6 +264,9 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
     def __init__(self, phys_mem):
         self.phys_mem = phys_mem
 
+    def get_entry_size(self):
+        return 8
+
     def parse_tables(self, cache, args):
         # Check that paging is enabled, otherwise no point to continue.
         if has_paging_enabled() == False:
@@ -218,14 +280,13 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
             # TODO: Check if these attribute bits in the cr3 need to be respected.
         pt_addr = pt_addr & (~0xfff)
 
-        pse, pae = retrieve_pse_and_pae()
-        pde_shift = self.get_pde_shift(pse=pse, pae=pae)
+        pde_shift = self.get_pde_shift(True, True)
 
         page_ranges = None
         if pt_addr in cache:
             page_ranges = cache[pt_addr]
         else:
-            entry_size = 8
+            entry_size = self.get_entry_size()
             pml4es = parse_pml4(self.phys_mem, pt_addr, args.force_traverse_all)
             pdpes = parse_pml4es(self.phys_mem, pml4es, args.force_traverse_all, entry_size)
             pdes, large_pages = parse_pdpes(self.phys_mem, pdpes, args.force_traverse_all, entry_size, pde_shift)
@@ -269,6 +330,9 @@ class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
         else:
             raise Exception("Unreachable")
 
+    def get_entry_size(self):
+        return 8 if pae else 4
+
     def parse_tables(self, cache, args):
         # Check that paging is enabled, otherwise no point to continue.
         if has_paging_enabled() == False:
@@ -282,7 +346,8 @@ class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
             # TODO: Check if these attribute bits in the cr3 need to be respected.
             pt_addr = pt_addr & (~0xfff)
 
-        pse, pae = retrieve_pse_and_pae()
+        pse = retrieve_pse()
+        pae = retrieve_pae()
         pde_shift = self.get_pde_shift(pse=pse, pae=pae)
 
         page_ranges = None
@@ -290,7 +355,7 @@ class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
             page_ranges = cache[pt_addr]
         else:
             pdpes = None
-            entry_size = 8 if pae else 4
+            entry_size = self.get_entry_size()
             if pae:
                 dummy_pml4 = PML4_Entry(pt_addr, 0)
                 num_entries = 4

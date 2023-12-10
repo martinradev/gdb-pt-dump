@@ -3,6 +3,8 @@ import pt.pt_aarch64_definitions as a64_def
 from pt.pt_arch_backend import PTArchBackend
 from pt.pt_constants import *
 
+import math
+
 PT_AARCH64_4KB_PAGE  = PT_SIZE_4K
 PT_AARCH64_16KB_PAGE = PT_SIZE_16K
 PT_AARCH64_64KB_PAGE = PT_SIZE_64K
@@ -214,6 +216,56 @@ class PT_Aarch64_Backend(PTArchBackend):
     def get_arch(self):
         return "aarch64"
 
+    def walk(self, va):
+        pt_walk = PageTableWalkInfo(va)
+
+        # Use canonical form to determine which page table to use.
+        top_bit_index = 63
+        granule_size = None
+        as_limit = None
+
+        table_addr = None
+        if va & (1 << top_bit_index) == 0:
+            # top bit is not set, so this is a userspace address
+            granule_size = self.determine_ttbr0_granule_size()
+            as_limit = self.determine_ttbr0_address_space_limit()
+            table_addr = extract_no_shift(self.get_ttbr0_el1(), 0, 47)
+            pt_walk.add_register_stage("TTBR0_EL1", table_addr)
+        else:
+            granule_size = self.determine_ttbr1_granule_size()
+            as_limit = self.determine_ttbr1_address_space_limit()
+            table_addr = extract_no_shift(self.get_ttbr1_el1(), 0, 47)
+            pt_walk.add_register_stage("TTBR1_EL1", table_addr)
+
+        entry_size = 8
+        bits_per_stage = int(math.log2(granule_size / entry_size))
+        start_index = int(math.log2(granule_size))
+        ranges = reversed([(base, base + bits_per_stage - 1) for base in range(start_index, as_limit, bits_per_stage)])
+
+        for (index, r) in enumerate(ranges):
+            page_pa = table_addr & ~0xfff
+            entry_index = extract(va, r[0], r[1])
+            entry_page_pa = page_pa + entry_index * entry_size
+            entry_value = int.from_bytes(self.phys_mem.read(entry_page_pa, entry_size), 'little')
+            entry_value_pa = extract_no_shift(entry_value, 0, 47)
+            entry_value_pa_no_meta = extract_no_shift(entry_value, 12, 47)
+            meta_bits = extract_no_shift(entry_value, 0, 11)
+
+            pt_walk.add_stage(f"Level{index}", entry_index, entry_value_pa_no_meta, meta_bits)
+
+            bit1and2 = extract(entry_value, 0, 1)
+            is_valid = bit1and2 != 0
+            if not is_valid:
+                pt_walk.set_faulted()
+                break
+
+            is_block = bit1and2 == 0x1
+            if is_block:
+                break
+            table_addr = entry_value_pa
+
+        return pt_walk
+
     def get_filter_is_writeable(self, has_superuser_filter, has_user_filter):
         if has_superuser_filter == True and has_user_filter == False:
             return lambda p: is_kernel_writeable(p)
@@ -274,6 +326,46 @@ class PT_Aarch64_Backend(PTArchBackend):
     def get_filter_architecture_specific(self, filter_name, has_superuser_filter, has_user_filter):
         raise exception(f"Uknown filter {filter_name}")
 
+    def determine_ttbr0_granule_size(self):
+        tb0_granule_size = None
+        tg0 = a64_def.pt_tcr.TG0
+        if tg0 == 0b00:
+            tb0_granule_size = PT_AARCH64_4KB_PAGE
+        elif tg0 == 0b01:
+            tb0_granule_size = PT_AARCH64_64KB_PAGE
+        elif tg0 == 0b10:
+            tb0_granule_size = PT_AARCH64_16KB_PAGE
+        else:
+            raise Exception(f"Unknown TG0 value {tg0}")
+
+        return tb0_granule_size
+
+    def determine_ttbr1_granule_size(self):
+        tb1_granule_size = None
+        tg1 = a64_def.pt_tcr.TG1
+        if tg1 == 0b10:
+            tb1_granule_size = PT_AARCH64_4KB_PAGE
+        elif tg1 == 0b11:
+            tb1_granule_size = PT_AARCH64_64KB_PAGE
+        elif tg1 == 0b01:
+            tb1_granule_size = PT_AARCH64_16KB_PAGE
+        else:
+            raise Exception(f"Unknown TG1 value {tg1}")
+
+        return tb1_granule_size
+
+    def determine_ttbr0_address_space_limit(self):
+        return 64 - a64_def.pt_tcr.T0SZ
+
+    def determine_ttbr1_address_space_limit(self):
+        return 64 - a64_def.pt_tcr.T1SZ
+
+    def get_ttbr0_el1(self):
+        return int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("unsigned long")))
+
+    def get_ttbr1_el1(self):
+        return int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("unsigned long")))
+
     def parse_tables(self, cache, args):
         tb0 = args.ttbr0_el1
         tb1 = args.ttbr1_el1
@@ -285,8 +377,8 @@ class PT_Aarch64_Backend(PTArchBackend):
 
         # If neither is provided, just then query the actual translation table registers.
         if not tb0 and not tb1:
-            tb0 = int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("unsigned long")))
-            tb1 = int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("unsigned long")))
+            tb0 = self.get_ttbr0_el1()
+            tb1 = self.get_ttbr1_el1()
 
         all_blocks_0 = []
         all_blocks_1 = []
@@ -297,17 +389,8 @@ class PT_Aarch64_Backend(PTArchBackend):
             if tb0 in cache:
                 all_blocks_0 = cache[tb0]
             else:
-                tb0_granule_size = None
-                tg0 = a64_def.pt_tcr.TG0
-                if tg0 == 0b00:
-                    tb0_granule_size = PT_AARCH64_4KB_PAGE
-                elif tg0 == 0b01:
-                    tb0_granule_size = PT_AARCH64_64KB_PAGE
-                elif tg0 == 0b10:
-                    tb0_granule_size = PT_AARCH64_16KB_PAGE
-                else:
-                    raise Exception(f"Unknown TG0 value {tg0}")
-                tb0_sz = 64 - a64_def.pt_tcr.T0SZ
+                tb0_granule_size = self.determine_ttbr0_granule_size()
+                tb0_sz = self.determine_ttbr0_address_space_limit()
                 all_blocks_0 = arm_traverse_table(self.phys_mem, tb0, tb0_sz, tb0_granule_size, 0)
                 all_blocks_0 = optimize([], [], all_blocks_0, aarch64_semantically_similar)
 
@@ -316,17 +399,8 @@ class PT_Aarch64_Backend(PTArchBackend):
             if tb1 in cache:
                 all_blocks_1 = cache[tb1]
             else:
-                tb1_granule_size = None
-                tg1 = a64_def.pt_tcr.TG1
-                if tg1 == 0b10:
-                    tb1_granule_size = PT_AARCH64_4KB_PAGE
-                elif tg1 == 0b11:
-                    tb1_granule_size = PT_AARCH64_64KB_PAGE
-                elif tg1 == 0b01:
-                    tb1_granule_size = PT_AARCH64_16KB_PAGE
-                else:
-                    raise Exception(f"Unknown TG1 value {tg1}")
-                tb1_sz = 64 - a64_def.pt_tcr.T1SZ
+                tb1_granule_size = self.determine_ttbr1_granule_size()
+                tb1_sz = self.determine_ttbr1_address_space_limit()
                 all_blocks_1 = arm_traverse_table(self.phys_mem, tb1, tb1_sz, tb1_granule_size, 1)
                 all_blocks_1 = optimize([], [], all_blocks_1, aarch64_semantically_similar)
 

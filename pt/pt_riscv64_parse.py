@@ -129,6 +129,9 @@ class PT_RiscV64_Backend(PTArchBackend):
     def get_arch(self):
         return "riscv64"
 
+    def walk(self, va):
+        raise NotImplementedError("'-walk' is not implemented for rv64")
+
     def get_filter_is_writeable(self, has_superuser_filter, has_user_filter):
         return lambda p: p.w
 

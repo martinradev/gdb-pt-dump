@@ -63,3 +63,7 @@ class PTArchBackend(ABC):
     def print_stats(self):
         pass
 
+    @abstractmethod
+    def walk(self, va):
+        pass
+

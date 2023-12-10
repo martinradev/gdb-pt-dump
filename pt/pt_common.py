@@ -276,3 +276,38 @@ def find_aliases(virtual_page_ranges):
                 print(" " * 4 + str(overlap))
             print("")
 
+class PageTableWalkInfo():
+
+    def __init__(self, va):
+        self.va = va
+        self.faulted = False
+        self.stages = []
+
+    def add_register_stage(self, register_name, register_value):
+        self.base_register = (register_name, register_value)
+
+    def add_stage(self, stage_str, table_index, entry_value_without_meta, meta_bits):
+        self.stages.append((stage_str, table_index, entry_value_without_meta, meta_bits))
+
+    def set_faulted(self):
+        self.faulted = True
+
+    def __str__(self):
+        s = ""
+
+        s += f"Page table walk for VA = {hex(self.va)}\n"
+        s += "-" * 43 + "\n"
+
+        s += f"{self.base_register[0]} = {hex(self.base_register[1])}\n"
+
+        for (stage_index, stage_entry) in enumerate(self.stages):
+            stage_str, table_index, entry_value_without_meta, meta_bits = stage_entry
+            stage_index = stage_index + 1
+            mapping_string = " " * stage_index * 2 + f"{stage_str}[{table_index}] = {hex(entry_value_without_meta)}"
+            flags_string = f"Flags 0x{meta_bits:03x}"
+            s += mapping_string.ljust(34) + "| " + flags_string + "\n"
+
+        if self.faulted:
+            s += "\n!!! Last stage faulted !!!\n"
+
+        return s

@@ -229,6 +229,7 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-kaslr", action="store_true")
         self.parser.add_argument("-kaslr_leaks", action="store_true")
         self.parser.add_argument("-info", action="store_true")
+        self.parser.add_argument("-walk", nargs=1, type=lambda s: int(s, 0))
         self.parser.add_argument("-filter", nargs="+")
         self.parser.add_argument("-o", nargs=1)
         self.parser.add_argument("-find_alias", action="store_true")
@@ -285,6 +286,9 @@ class PageTableDump(gdb.Command):
         if args.info:
             requires_page_table_parsing = False
 
+        if args.walk:
+            requires_page_table_parsing = False
+
         page_ranges = None
         page_ranges_filtered = None
         if requires_page_table_parsing:
@@ -309,6 +313,9 @@ class PageTableDump(gdb.Command):
                     print("Found at " + hex(entry[0]) + " in " + str(entry[1]))
             else:
                 print("Not found")
+        elif args.walk:
+            walk = self.backend.walk(args.walk[0])
+            print(walk)
         elif args.kaslr:
             self.backend.print_kaslr_information(page_ranges)
         elif args.kaslr_leaks:
