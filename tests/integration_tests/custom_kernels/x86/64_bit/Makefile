@@ -12,8 +12,8 @@ $(1).bin: boot.o entry_$(1).o linker.ld
 	echo "Creating $(1)"
 	ld -m elf_x86_64 -Tlinker.ld -o x86_64_test_entry_$(1).bin entry_$(1).o boot.o
 
-entry_$(1).o: entry.c common.h common_x86.h
-	gcc -DGDB_PT_DUMP_TEST=$(1) entry.c -I./ -Wall -Wextra -Werror -O3 -fno-builtin -m64 -no-pie -fno-PIE -ffreestanding -nostdlib -c -o entry_$(1).o
+entry_$(1).o: entry.c ../../common/common.h ../common/common_x86.h
+	gcc -DGDB_PT_DUMP_TEST=$(1) entry.c -I./ -I../../common/ -I../common/ -Wall -Wextra -Werror -O3 -fno-builtin -m64 -no-pie -fno-PIE -ffreestanding -nostdlib -c -o entry_$(1).o
 
 endef
 
