@@ -25,10 +25,6 @@ class Riscv64_Page():
         self.phys = [phys]
         self.sizes = [size]
 
-    def __str__(self):
-        conf = PagePrintSettings(va_len = 18, page_size_len = 8)
-        return page_to_str(self, conf)
-
     def read_memory(self, phys_mem):
         memory = b""
         for phys_range_start, phys_range_size in zip(self.phys, self.sizes):
@@ -46,6 +42,34 @@ class Riscv64_Page():
 
     def pwndbg_is_executable(self):
         return self.x
+
+    def to_string(self, phys_verbose):
+        prefix = ""
+        if not page.s:
+            prefix = bcolors.CYAN + " " + bcolors.ENDC
+        elif page.s:
+            prefix = bcolors.MAGENTA + " " + bcolors.ENDC
+
+        varying_str = None
+        if phys_verbose:
+            fmt = f"{{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}} : {{:>{PrintConfig.phys_len}}}"
+            varying_str = fmt.format(hex(page.va), hex(page.page_size), hex(page.phys[-1]))
+        else:
+            fmt = f"{{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}}"
+            varying_str = fmt.format(hex(page.va), hex(page.page_size))
+        s = f"{varying_str} | W:{int(page.w)} X:{int(page.x)} R:{int(page.r)} S:{int(page.s)}"
+
+        res = ""
+        if page.x and page.w:
+            res = prefix + bcolors.BLUE + " " + s + bcolors.ENDC
+        elif page.w and not page.x:
+            res = prefix + bcolors.GREEN + " " + s + bcolors.ENDC
+        elif page.x:
+            res = prefix + bcolors.RED + " " + s + bcolors.ENDC
+        else:
+            res = prefix + " " + s
+
+        return res
 
 def riscv64_semantically_similar(p1, p2) -> bool:
     return p1.x == p2.x and p1.w == p2.w and p1.r == p2.r and p1.s == p2.s
@@ -99,29 +123,6 @@ def traverse_table(phys_mem, pt_addr, as_size):
 def print_stats():
     return
 
-def page_to_str(page, conf: PagePrintSettings):
-    prefix = ""
-    if not page.s:
-        prefix = bcolors.CYAN + " " + bcolors.ENDC
-    elif page.s:
-        prefix = bcolors.MAGENTA + " " + bcolors.ENDC
-
-    fmt = f"{{:>{conf.va_len}}} : {{:>{conf.page_size_len}}}"
-    varying_str = fmt.format(hex(page.va), hex(page.page_size))
-    s = f"{varying_str} | W:{int(page.w)} X:{int(page.x)} R:{int(page.r)} S:{int(page.s)}"
-
-    res = ""
-    if page.x and page.w:
-        res = prefix + bcolors.BLUE + " " + s + bcolors.ENDC
-    elif page.w and not page.x:
-        res = prefix + bcolors.GREEN + " " + s + bcolors.ENDC
-    elif page.x:
-        res = prefix + bcolors.RED + " " + s + bcolors.ENDC
-    else:
-        res = prefix + " " + s
-
-    return res
-
 class PT_RiscV64_Backend(PTArchBackend):
     def __init__(self, phys_mem):
         self.phys_mem = phys_mem
@@ -161,6 +162,7 @@ class PT_RiscV64_Backend(PTArchBackend):
 
     def parse_tables(self, cache, args):
         satp = args.satp
+        requires_physical_contiguity = args.phys_verbose
 
         if satp:
             satp = int(satp[0], 16)
@@ -176,24 +178,27 @@ class PT_RiscV64_Backend(PTArchBackend):
             as_size = get_address_space_size_from_mode(mode_value)
             pt_base = extract(satp, 0, 43) << 12
             all_blocks = traverse_table(self.phys_mem, pt_base, as_size)
-            all_blocks = optimize([], [], all_blocks, riscv64_semantically_similar)
+            all_blocks = optimize([], [], all_blocks, riscv64_semantically_similar, requires_physical_contiguity)
 
         if args.save:
             cache[satp] = all_blocks
 
         return all_blocks
 
-    def print_kaslr_information(self, table):
+    def print_kaslr_information(self, table, phys_verbose):
         return None
 
-    def print_table(self, table):
-        max_va_len, max_page_size_len = compute_max_str_len(table)
-        conf = PagePrintSettings(va_len = max_va_len, page_size_len = max_page_size_len)
-        fmt = f"  {{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
-        varying_str = fmt.format("Address", "Length")
+    def print_table(self, table, phys_verbose):
+        varying_str = None
+        if phys_verbose:
+            fmt = f"  {{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}} : {{:>{PrintConfig.phys_len}}}"
+            varying_str = fmt.format("Address", "Length", "Phys")
+        else:
+            fmt = f"  {{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}}"
+            varying_str = fmt.format("Address", "Length")
         print(bcolors.BLUE + varying_str + "   Permissions    " + bcolors.ENDC)
         for page in table:
-            print(page_to_str(page, conf))
+            print(page.to_string(phys_verbose))
         return None
 
     def print_stats(self):

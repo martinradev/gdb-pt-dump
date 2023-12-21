@@ -52,11 +52,11 @@ class PTArchBackend(ABC):
         pass
 
     @abstractmethod
-    def print_table(self, table):
+    def print_table(self, table, phys_verbose):
         pass
 
     @abstractmethod
-    def print_kaslr_information(self, table):
+    def print_kaslr_information(self, table, phys_verbose):
         pass
 
     @abstractmethod

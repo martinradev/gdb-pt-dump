@@ -13,7 +13,6 @@ from pt.pt_x86_64_parse import *
 from pt.pt_aarch64_parse import *
 from pt.pt_riscv64_parse import *
 
-
 def _search_pids_for_file(pids, filename):
     for pid in pids:
         fd_dir = f"/proc/{pid}/fd"
@@ -154,6 +153,10 @@ class PageTableDump(gdb.Command):
             already been trarversed. Using this option bypasses an optimization which discards already
             traversed duplicate entries. Expect that using this option would render pt unusable for
             windows VMs.
+        -phys_verbose
+            Prints the start physical address for the printed virtual ranges. This argument further
+            restricts the merging of virtual ranges by requiring that merged ranges need to also be
+            physically contiguous. Using this range leads to more verbose output.
 
     Architecture-specific arguments:
         - X86-32 / X86-64
@@ -231,6 +234,7 @@ class PageTableDump(gdb.Command):
         self.parser.add_argument("-kaslr_leaks", action="store_true")
         self.parser.add_argument("-info", action="store_true")
         self.parser.add_argument("-walk", nargs=1, type=lambda s: int(s, 0))
+        self.parser.add_argument("-phys_verbose", action="store_true")
         self.parser.add_argument("-filter", nargs="+")
         self.parser.add_argument("-o", nargs=1)
         self.parser.add_argument("-find_alias", action="store_true")
@@ -311,7 +315,7 @@ class PageTableDump(gdb.Command):
                 aligned_offset = args.align[1] if args.align and len(args.align) == 2 else 0
                 search_results = search_memory(self.phys_mem, page_ranges_filtered, to_search, to_search_num, aligned_to, aligned_offset)
                 for entry in search_results:
-                    print("Found at " + hex(entry[0]) + " in " + str(entry[1]))
+                    print("Found at " + hex(entry[0]) + " in " + entry[1].to_string(args.phys_verbose))
             else:
                 print("Not found")
         elif args.walk:
@@ -327,7 +331,7 @@ class PageTableDump(gdb.Command):
                 if entries:
                     print(f"Search for {hex(x)}")
                     for entry in entries:
-                        print("Found at " + hex(entry[0] - off) + " in " + str(entry[1]))
+                        print("Found at " + hex(entry[0] - off) + " in " + entry[1].to_string(args.phys_verbose))
             leaks = self.backend.print_kaslr_information(page_ranges, False)
             if leaks:
                 inner_find_leaks(leaks[0], 3)
@@ -335,9 +339,9 @@ class PageTableDump(gdb.Command):
         elif args.info:
             self.backend.print_stats()
         elif args.find_alias:
-            find_aliases(page_ranges)
+            find_aliases(page_ranges, args.phys_verbose)
         else:
-            self.backend.print_table(page_ranges_filtered)
+            self.backend.print_table(page_ranges_filtered, phys_verbose=args.phys_verbose)
 
     def invoke(self, arg, from_tty):
         try:

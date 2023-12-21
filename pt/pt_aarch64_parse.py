@@ -43,8 +43,15 @@ class Aarch64_Block():
     def cut_after(self, va):
         print("cut_after is not implemented")
 
-    def block_to_str(self, max_va_len, max_page_size_len):
-        fmt = f"{{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
+    def to_string(self, phys_verbose):
+        varying_str = None
+        if phys_verbose:
+            fmt = f"{{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}} : {{:>{PrintConfig.phys_len}}} "
+            varying_str = fmt.format(hex(self.va), hex(self.page_size), hex(self.phys[0]))
+        else:
+            fmt = f"{{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}} "
+            varying_str = fmt.format(hex(self.va), hex(self.page_size))
+
         uspace_writeable = is_user_writeable(self)
         kspace_writeable = is_kernel_writeable(self)
         uspace_readable = is_user_readable(self)
@@ -52,12 +59,11 @@ class Aarch64_Block():
         uspace_executable = is_user_executable(self)
         kspace_executable = is_kernel_executable(self)
         delim = bcolors.YELLOW + " " + bcolors.ENDC
-        varying_str = fmt.format(hex(self.va), hex(self.page_size))
         uspace_color = select_color(uspace_writeable, uspace_executable, uspace_readable)
         uspace_str = uspace_color + f" R:{int(uspace_readable)} W:{int(uspace_writeable)} X:{int(uspace_executable)} " + bcolors.ENDC
         kspace_color = select_color(kspace_writeable, kspace_executable, kspace_readable)
-        kspace_str = kspace_color + f" R:{int(kspace_readable)} W:{int(kspace_writeable)} X:{int(kspace_executable)} " + bcolors.ENDC
-        s = f"{varying_str} " + delim + uspace_str + delim + kspace_str
+        kspace_str = kspace_color + f" R:{int(kspace_readable)} W:{int(kspace_writeable)} X:{int(kspace_executable)}  " + bcolors.ENDC
+        s = f"{varying_str}" + delim + uspace_str + delim + kspace_str
         return s
 
     def read_memory(self, phys_mem):
@@ -65,9 +71,6 @@ class Aarch64_Block():
         for phys_range_start, phys_range_size in zip(self.phys, self.sizes):
             memory += phys_mem.read(phys_range_start, phys_range_size)
         return memory
-
-    def __str__(self):
-        return self.block_to_str(18, 8)
 
     def pwndbg_is_writeable(self):
         return is_user_writeable(self) or is_kernel_writeable(self)
@@ -367,6 +370,7 @@ class PT_Aarch64_Backend(PTArchBackend):
         return int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("unsigned long")))
 
     def parse_tables(self, cache, args):
+        requires_physical_contiguity = args.phys_verbose
         tb0 = args.ttbr0_el1
         tb1 = args.ttbr1_el1
 
@@ -392,7 +396,7 @@ class PT_Aarch64_Backend(PTArchBackend):
                 tb0_granule_size = self.determine_ttbr0_granule_size()
                 tb0_sz = self.determine_ttbr0_address_space_limit()
                 all_blocks_0 = arm_traverse_table(self.phys_mem, tb0, tb0_sz, tb0_granule_size, 0)
-                all_blocks_0 = optimize([], [], all_blocks_0, aarch64_semantically_similar)
+                all_blocks_0 = optimize([], [], all_blocks_0, aarch64_semantically_similar, requires_physical_contiguity)
 
         if not args.ttbr0_el1:
             tb1 = extract_no_shift(tb1, 10, 47)
@@ -402,7 +406,7 @@ class PT_Aarch64_Backend(PTArchBackend):
                 tb1_granule_size = self.determine_ttbr1_granule_size()
                 tb1_sz = self.determine_ttbr1_address_space_limit()
                 all_blocks_1 = arm_traverse_table(self.phys_mem, tb1, tb1_sz, tb1_granule_size, 1)
-                all_blocks_1 = optimize([], [], all_blocks_1, aarch64_semantically_similar)
+                all_blocks_1 = optimize([], [], all_blocks_1, aarch64_semantically_similar, requires_physical_contiguity)
 
         # TODO: Consider the top-byte ignore rules
         # TODO: Consider EPDs
@@ -415,7 +419,7 @@ class PT_Aarch64_Backend(PTArchBackend):
 
         return all_blocks
 
-    def print_kaslr_information(self, table, should_print = True):
+    def print_kaslr_information(self, table, should_print = True, phys_verbose = False):
         potential_base_filter = lambda p: is_kernel_executable(p)
         tmp = list(filter(potential_base_filter, table))
         th = gdb.selected_inferior()
@@ -432,20 +436,24 @@ class PT_Aarch64_Backend(PTArchBackend):
             kaslr_addresses.append(found_page.va)
             if should_print:
                 print("Found virtual image base:")
-                print("\tVirt: " + str(found_page))
+                print("\tVirt: " + found_page.to_string(phys_verbose))
                 print("\tPhys: " + hex(found_page.phys[0]))
         else:
             if should_print:
                 print("Failed to determine kaslr offsets")
         return kaslr_addresses
 
-    def print_table(self, table):
-        max_va_len, max_page_size_len = compute_max_str_len(table)
-        fmt = f"{{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
-        varying_str = fmt.format("Address", "Length")
-        print(bcolors.BLUE + varying_str + "  User space " + "   Kernel space " + bcolors.ENDC)
+    def print_table(self, table, phys_verbose):
+        varying_str = None
+        if phys_verbose:
+            fmt = f"{{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}} : {{:>{PrintConfig.phys_len}}} |"
+            varying_str = fmt.format("Address", "Length", "Phys")
+        else:
+            fmt = f"{{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}} |"
+            varying_str = fmt.format("Address", "Length")
+        print(bcolors.BLUE + varying_str + " User space " + " | Kernel space " + bcolors.ENDC)
         for block in table:
-            print(block.block_to_str(max_va_len, max_page_size_len))
+            print(block.to_string(phys_verbose))
 
     def print_stats(self):
         print_stats()

@@ -147,15 +147,17 @@ class PT_x86_Common_Backend():
         else:
             return None
 
-    def print_table(self, table):
-        # Compute max len for these varying-len strings in order to print as tabular.
-        max_va_len, max_page_size_len = compute_max_str_len(table)
-        conf = PagePrintSettings(va_len = max_va_len, page_size_len = max_page_size_len)
-        fmt = f"  {{:>{max_va_len}}} : {{:>{max_page_size_len}}}"
-        varying_str = fmt.format("Address", "Length")
-        print(bcolors.BLUE + varying_str + "   Permissions          " + bcolors.ENDC)
+    def print_table(self, table, phys_verbose):
+        varying_str = None
+        if phys_verbose:
+            fmt = f"  {{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}} : {{:>{PrintConfig.phys_len}}} |"
+            varying_str = fmt.format("Address", "Length", "Phys")
+        else:
+            fmt = f"  {{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}} |"
+            varying_str = fmt.format("Address", "Length")
+        print(bcolors.BLUE + varying_str + " Permissions          " + bcolors.ENDC)
         for page in table:
-            print(page_to_str(page, conf))
+            print(page.to_string(phys_verbose))
 
     def print_stats(self):
         print(x86_msr.pt_cr0.check())
@@ -214,7 +216,7 @@ class PT_x86_Common_Backend():
 
         return pt_walk
 
-    def print_kaslr_information(self, table, should_print=True):
+    def print_kaslr_information(self, table, should_print=True, phys_verbose=False):
         potential_base_filter = lambda p: p.x and p.s and p.phys[0] % PT_SIZE_2MIB == 0
         tmp = list(filter(potential_base_filter, table))
         th = gdb.selected_inferior()
@@ -230,7 +232,7 @@ class PT_x86_Common_Backend():
         kaslr_addresses = []
         if found_page:
             stdout_output += "Found virtual image base:\n"
-            stdout_output += "\tVirt: " + str(found_page) + "\n"
+            stdout_output += "\tVirt: " + found_page.to_string(phys_verbose) + "\n"
             stdout_output += "\tPhys: " + hex(found_page.phys[0]) + "\n"
             kaslr_addresses.append(found_page.va)
             first_bytes = th.read_memory(page.va, 32).tobytes()
@@ -243,7 +245,7 @@ class PT_x86_Common_Backend():
                 stdout_output += "Found phys map base:\n"
                 phys_map_virt_base = search_res[0] - found_page.phys[0]
                 phys_map_range = next(range for range in table if range.va >= phys_map_virt_base and phys_map_virt_base < range.va + range.page_size)
-                stdout_output += "\tVirt: " + hex(phys_map_virt_base) + " in " + str(phys_map_range) + "\n"
+                stdout_output += "\tVirt: " + hex(phys_map_virt_base) + " in " + phys_map_range.to_string(phys_verbose) + "\n"
                 kaslr_addresses.append(phys_map_virt_base)
         else:
             stdout_output = "Failed to find KASLR info"
@@ -272,6 +274,7 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
         if has_paging_enabled() == False:
             raise Exception("Paging is not enabled")
 
+        requires_physical_contiguity = args.phys_verbose
         pt_addr = None
         if args.cr3:
             pt_addr = int(args.cr3[0], 16)
@@ -294,7 +297,7 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
             small_pages = []
             for pte in ptes:
                 small_pages.append(create_page_from_pte(pte))
-            page_ranges = optimize(large_pages, big_pages, small_pages, rwxs_semantically_similar)
+            page_ranges = optimize(large_pages, big_pages, small_pages, rwxs_semantically_similar, requires_physical_contiguity)
 
         # Cache the page table if caching is set.
         # Caching happens before the filter is applied.

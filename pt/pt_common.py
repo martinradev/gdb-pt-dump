@@ -44,7 +44,8 @@ def make_canonical(va, top_bit_pos = 48):
     mask = ((((2**64)-1) >> shift) * bit) << shift
     return va | mask
 
-PagePrintSettings = namedtuple('PagePrintSettings', ['va_len', 'page_size_len'])
+PagePrintSettings = namedtuple('PagePrintSettings', ['va_len', 'page_size_len', 'phys_len'])
+PrintConfig = PagePrintSettings(va_len = 18, page_size_len = 14, phys_len = 12)
 
 class Page():
     def __init__(self):
@@ -94,10 +95,6 @@ class Page():
             self.sizes[-1] = self.sizes[-1] - delta
         self.page_size = min(self.page_size, cut_addr - self.va)
 
-    def __str__(self):
-        conf = PagePrintSettings(va_len = 18, page_size_len = 8)
-        return page_to_str(self, conf)
-
     def read_memory(self, phys_mem):
         memory = b""
         for phys_range_start, phys_range_size in zip(self.phys, self.sizes):
@@ -110,30 +107,36 @@ class Page():
     def pwndbg_is_executable(self):
         return self.x
 
-def page_to_str(page: Page, conf: PagePrintSettings):
-    prefix = ""
-    if not page.s:
-        prefix = bcolors.CYAN + " " + bcolors.ENDC
-    elif page.s:
-        prefix = bcolors.MAGENTA + " " + bcolors.ENDC
+    def to_string(self, phys_verbose):
+        prefix = ""
+        if not self.s:
+            prefix = bcolors.CYAN + " " + bcolors.ENDC
+        elif self.s:
+            prefix = bcolors.MAGENTA + " " + bcolors.ENDC
 
-    fmt = f"{{:>{conf.va_len}}} : {{:>{conf.page_size_len}}}"
-    varying_str = fmt.format(hex(page.va), hex(page.page_size))
-    s = f"{varying_str} | W:{int(page.w)} X:{int(page.x)} S:{int(page.s)} UC:{int(page.uc)} WB:{int(page.wb)}"
+        varying_str = None
+        if phys_verbose:
+            fmt = f"{{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}} : {{:>{PrintConfig.phys_len}}}"
+            varying_str = fmt.format(hex(self.va), hex(self.page_size), hex(self.phys[0]))
+        else:
+            fmt = f"{{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}}"
+            varying_str = fmt.format(hex(self.va), hex(self.page_size))
 
-    res = ""
-    if page.x and page.w:
-        res = prefix + bcolors.BLUE + " " + s + bcolors.ENDC
-    elif page.w and not page.x:
-        res = prefix + bcolors.GREEN + " " + s + bcolors.ENDC
-    elif page.x:
-        res = prefix + bcolors.RED + " " + s + bcolors.ENDC
-    else:
-        res = prefix + " " + s
+        s = f"{varying_str} | W:{int(self.w)} X:{int(self.x)} S:{int(self.s)} UC:{int(self.uc)} WB:{int(self.wb)}"
 
-    return res
+        res = ""
+        if self.x and self.w:
+            res = prefix + bcolors.BLUE + " " + s + bcolors.ENDC
+        elif self.w and not self.x:
+            res = prefix + bcolors.GREEN + " " + s + bcolors.ENDC
+        elif self.x:
+            res = prefix + bcolors.RED + " " + s + bcolors.ENDC
+        else:
+            res = prefix + " " + s
 
-def merge_cont_pages(pages, func_semantic_sim):
+        return res
+
+def merge_cont_pages(pages, func_semantic_sim, require_physical_contiguity):
     if len(pages) <= 1:
         return pages
 
@@ -141,10 +144,18 @@ def merge_cont_pages(pages, func_semantic_sim):
     merged_pages = []
     cur_page = copy.copy(pages[0])
     for page in pages[1:]:
-        if cur_page.va + cur_page.page_size == page.va and func_semantic_sim(cur_page, page):
+
+        merge_pages = True
+        if not (cur_page.va + cur_page.page_size == page.va and func_semantic_sim(cur_page, page)):
+            merge_pages = False
+
+        if require_physical_contiguity and not (cur_page.phys[-1] + cur_page.sizes[-1] == page.phys[0]):
+            merge_pages = False
+
+        if merge_pages:
             cur_page.page_size = cur_page.page_size + page.page_size
             if cur_page.phys[-1] + cur_page.sizes[-1] == page.phys[0]:
-                # Simply extend phys as well if they are physicall contiguous
+                # Depending on the flag require_physical_contiguity, the extended ranges may or may not be physically contiguous
                 assert(len(page.phys) == 1)
                 assert(len(page.sizes) == 1)
                 cur_page.sizes[-1] = cur_page.sizes[-1] + page.page_size
@@ -158,29 +169,21 @@ def merge_cont_pages(pages, func_semantic_sim):
     merged_pages.append(cur_page)
     return merged_pages 
 
-def optimize(gig_pages, mb_pages, kb_pages, func_semantic_sim):
+def optimize(gig_pages, mb_pages, kb_pages, func_semantic_sim, require_physical_contiguity):
     pages = sorted(gig_pages + mb_pages + kb_pages, key = lambda p: p.va)
-    opt = merge_cont_pages(pages, func_semantic_sim)
+    opt = merge_cont_pages(pages, func_semantic_sim, require_physical_contiguity)
     return opt
 
-def compute_max_str_len(pages):
-    max_page_size_len = 0
-    max_va_len = 0
-    for page in pages:
-        max_va_len = max(max_va_len, len(hex(page.va)))
-        max_page_size_len = max(max_page_size_len, len(hex(page.page_size)))
-    return max_va_len, max_page_size_len
-
 def select_color(w, x, r):
-        if x and w:
-            return bcolors.BLUE
-        if x:
-            return bcolors.RED
-        if w:
-            return bcolors.GREEN
-        if r:
-            return bcolors.LGREY
-        return bcolors.BLACK
+    if x and w:
+        return bcolors.BLUE
+    if x:
+        return bcolors.RED
+    if w:
+        return bcolors.GREEN
+    if r:
+        return bcolors.LGREY
+    return bcolors.BLACK
 
 def create_compound_filter(filters):
     def apply_filters(p):
@@ -215,7 +218,7 @@ def search_memory(phys_mem, page_ranges, to_search, to_search_num, aligned_to, a
             pass
     return None
 
-def find_aliases(virtual_page_ranges):
+def find_aliases(virtual_page_ranges, phys_verobse):
     # First collect the physical ranges, aka inverse virtual map
     phys_ranges = []
     i = 0
@@ -273,7 +276,7 @@ def find_aliases(virtual_page_ranges):
             print(f"Phys: {hex(key[0])} - {hex(key[1])}")
             overlap_len = key[1] - key[0]
             for overlap in overlaps:
-                print(" " * 4 + str(overlap))
+                print(" " * 4 + overlap.to_string(phys_verbose))
             print("")
 
 class PageTableWalkInfo():
