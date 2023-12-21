@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import string
 import random
+import traceback
 
 from pt.pt_common import *
 from pt.pt_x86_64_parse import *
@@ -363,6 +364,7 @@ class PageTableDump(gdb.Command):
             self.handle_command(args)
         except Exception as e:
             print(f"Exception: {str(e)}")
+            print(f"Stack trace:\n{traceback.format_exc()}")
         finally:
             if saved_stdout:
                 sys.stdout.close()
