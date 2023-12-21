@@ -110,6 +110,61 @@ def test_pt_range_exists(arch_name):
         data = monitor.read_virt_memory(addr, 4)
         assert(len(data) == 4)
 
+@pytest.mark.parametrize("arch_name", get_all_arch())
+def test_pt_walk_one_fixed_address(arch_name):
+    vm = create_linux_vm(arch_name)
+    vm.start(kaslr=False)
+    vm.wait_for_shell()
+    gdb = GdbCommandExecutor(vm)
+
+    res = gdb.run_cmd(f"pt")
+    monitor = QemuMonitorExecutor(vm)
+    monitor.pause()
+
+    output = gdb.run_cmd(f"pt -walk {hex(vm.get_default_base_image_kaddr())}")
+    assert("Last stage faulted" not in output.output)
+
+@pytest.mark.parametrize("arch_name", get_all_arch())
+def test_pt_walk_many_ranges(arch_name):
+    vm = create_linux_vm(arch_name)
+    vm.start()
+    vm.wait_for_shell()
+    gdb = GdbCommandExecutor(vm)
+
+    res = gdb.run_cmd(f"pt")
+    monitor = QemuMonitorExecutor(vm)
+    monitor.pause()
+
+    ranges = parse_va_ranges(arch_name, res.output)
+    assert(len(ranges) > 0)
+    for r in ranges[0:16]:
+        output = gdb.run_cmd(f"pt -walk {hex(r.va_start)}")
+        assert("Last stage faulted" not in output.output)
+
+        output = gdb.run_cmd(f"pt -walk {hex(int(r.va_start + r.length / 2))}")
+        assert("Last stage faulted" not in output.output)
+
+        output = gdb.run_cmd(f"pt -walk {hex(r.va_start + r.length - 1)}")
+        assert("Last stage faulted" not in output.output)
+
+@pytest.mark.parametrize("arch_name", get_all_arch())
+def test_pt_walk_first_stage_fault(arch_name):
+    vm = create_linux_vm(arch_name)
+    vm.start()
+    vm.wait_for_shell()
+    gdb = GdbCommandExecutor(vm)
+
+    res = gdb.run_cmd(f"pt")
+    monitor = QemuMonitorExecutor(vm)
+    monitor.pause()
+
+    ranges = parse_va_ranges(arch_name, res.output)
+    assert(len(ranges) > 0)
+
+    unmapped_address = ranges[0].va_start - 0x100
+    output = gdb.run_cmd(f"pt -walk {hex(unmapped_address)}")
+    assert("Last stage faulted" in output.output)
+
 def _test_pt_filter_common(arch_name, executions):
     vm = create_linux_vm(arch_name)
     vm.start()
@@ -482,6 +537,30 @@ def test_golden_images(request, arch_name, image_name):
         generated_data = generated_file.read()
 
     golden_image = os.path.join(ImageContainer().get_custom_kernels_golden_images(arch_name), image_name)
+    expected_data = None
+    with open(golden_image, "r") as golden_image_file:
+        expected_data = golden_image_file.read()
+
+    assert(expected_data == generated_data)
+
+@pytest.mark.parametrize("arch_name, image_name", get_custom_binaries())
+def test_pt_walk_golden_images(request, arch_name, image_name):
+    vm = create_custom_vm(arch_name, image_name)
+    vm.start()
+    vm.wait_for_string_on_line(b"Done")
+
+    test_name = request.node.name
+
+    gdb = GdbCommandExecutor(vm)
+    generated_image_name = "/tmp/.gdb_pt_dump_pt_walk_{}".format(image_name)
+    print("Generated image path is {}".format(generated_image_name))
+    gdb.run_cmd("pt -walk 0x2000 -o {}".format(generated_image_name))
+
+    generated_data = None
+    with open(generated_image_name, "r") as generated_file:
+        generated_data = generated_file.read()
+
+    golden_image = os.path.join(ImageContainer().get_custom_kernels_golden_images(arch_name), "pt_walk_{}".format(image_name))
     expected_data = None
     with open(golden_image, "r") as golden_image_file:
         expected_data = golden_image_file.read()
