@@ -48,6 +48,14 @@ def test_pt_kaslr_smoke(arch_name):
     gdb = GdbCommandExecutor(vm)
     res = gdb.run_cmd("pt -kaslr")
 
+@pytest.mark.parametrize("arch_name", get_all_arch())
+def test_pt_phys_verbose_smoke(arch_name):
+    vm = create_linux_vm(arch_name)
+    vm.start()
+    vm.wait_for_shell()
+    gdb = GdbCommandExecutor(vm)
+    res = gdb.run_cmd("pt -phys_verbose")
+
 def _test_pt_search(arch_name, search_command, mem_len, checker):
     vm = create_linux_vm(arch_name)
     vm.start()
@@ -537,6 +545,30 @@ def test_golden_images(request, arch_name, image_name):
         generated_data = generated_file.read()
 
     golden_image = os.path.join(ImageContainer().get_custom_kernels_golden_images(arch_name), image_name)
+    expected_data = None
+    with open(golden_image, "r") as golden_image_file:
+        expected_data = golden_image_file.read()
+
+    assert(expected_data == generated_data)
+
+@pytest.mark.parametrize("arch_name, image_name", get_custom_binaries())
+def test_phys_verbose_golden_images(request, arch_name, image_name):
+    vm = create_custom_vm(arch_name, image_name)
+    vm.start()
+    vm.wait_for_string_on_line(b"Done")
+
+    test_name = request.node.name
+
+    gdb = GdbCommandExecutor(vm)
+    generated_image_name = "/tmp/.gdb_pt_dump_phys_verbose_{}".format(image_name)
+    print("Generated image path is {}".format(generated_image_name))
+    gdb.run_cmd("pt -phys_verbose -o {}".format(generated_image_name))
+
+    generated_data = None
+    with open(generated_image_name, "r") as generated_file:
+        generated_data = generated_file.read()
+
+    golden_image = os.path.join(ImageContainer().get_custom_kernels_golden_images(arch_name), "phys_verbose_{}".format(image_name))
     expected_data = None
     with open(golden_image, "r") as golden_image_file:
         expected_data = golden_image_file.read()
