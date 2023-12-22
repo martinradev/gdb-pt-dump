@@ -208,10 +208,8 @@ class PageTableDump(gdb.Command):
         arch = gdb.execute("show architecture", to_string = True)
         if "aarch64" in arch:
             self.backend = PT_Aarch64_Backend(self.phys_mem)
-        elif "x86-64" in arch or "x64-64" in arch:
+        elif "x86" in arch or "x64" in arch:
             self.backend = PT_x86_64_Backend(self.phys_mem)
-        elif "x86-32" in arch or "x64-32" in arch or "i386" in arch:
-            self.backend = PT_x86_32_Backend(self.phys_mem)
         elif "riscv:rv64" in arch:
             self.backend = PT_RiscV64_Backend(self.phys_mem)
         else:

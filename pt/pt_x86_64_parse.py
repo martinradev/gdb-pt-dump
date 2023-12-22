@@ -186,7 +186,7 @@ class PT_x86_Common_Backend():
 
         top_va = None
         stages = None
-        if self.get_arch() == "x86_64":
+        if self.is_long_mode_enabled():
             stages = ["PML4", "PDP", "PD", "PT"]
             top_va_bit = 47
         else:
@@ -259,20 +259,50 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
     def get_arch(self):
         return "x86_64"
 
-    def get_pde_shift(self, pse, pae):
-        # Size is always 2MiB
-        return 21
-
     def __init__(self, phys_mem):
         self.phys_mem = phys_mem
 
+    def is_long_mode_enabled(self):
+        efer = int(gdb.parse_and_eval("$efer").cast(gdb.lookup_type("unsigned long")))
+        long_mode_enabled = bool((efer >> 8) & 0x1)
+        return long_mode_enabled
+
     def get_entry_size(self):
-        return 8
+        if self.is_long_mode_enabled():
+            return 8
+        else:
+            pae = retrieve_pae()
+            return 8 if pae else 4
+
+    def get_pde_shift(self):
+        if self.is_long_mode_enabled():
+            return 21
+        else:
+            pse = retrieve_pse()
+            pae = retrieve_pae()
+            if pse and pae:
+                # PSE is ignored when PAE is available.
+                return 21
+            elif not pse and pae:
+                # Only PAE. Page size is 2MiB
+                return 21
+            elif pse and not pae:
+                # Only PSE. Page size is 4MiB.
+                return 22
+            elif not pse and not pae:
+                # Default.
+                # Manual suggests this shouldn't be possible because the page extension bit in the pde would be ignored.
+                # Yet, QEMU doesn't respect this rule and here we are.
+                return 21
 
     def parse_tables(self, cache, args):
         # Check that paging is enabled, otherwise no point to continue.
         if has_paging_enabled() == False:
             raise Exception("Paging is not enabled")
+
+        # Check if long mode is enabled
+        efer = int(gdb.parse_and_eval("$efer").cast(gdb.lookup_type("unsigned long")))
+        long_mode_enabled = bool((efer >> 8) & 0x1)
 
         requires_physical_contiguity = args.phys_verbose
         pt_addr = None
@@ -283,12 +313,12 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
             # TODO: Check if these attribute bits in the cr3 need to be respected.
         pt_addr = pt_addr & (~0xfff)
 
-        pde_shift = self.get_pde_shift(True, True)
-
         page_ranges = None
+
         if pt_addr in cache:
             page_ranges = cache[pt_addr]
-        else:
+        elif long_mode_enabled:
+            pde_shift = self.get_pde_shift()
             entry_size = self.get_entry_size()
             pml4es = parse_pml4(self.phys_mem, pt_addr, args.force_traverse_all)
             pdpes = parse_pml4es(self.phys_mem, pml4es, args.force_traverse_all, entry_size)
@@ -298,67 +328,12 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
             for pte in ptes:
                 small_pages.append(create_page_from_pte(pte))
             page_ranges = optimize(large_pages, big_pages, small_pages, rwxs_semantically_similar, requires_physical_contiguity)
-
-        # Cache the page table if caching is set.
-        # Caching happens before the filter is applied.
-        if args.save:
-            cache[pt_addr] = page_ranges
-
-        return page_ranges
-
-class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
-
-    def __init__(self, phys_mem):
-        self.phys_mem = phys_mem
-        return None
-
-    def get_arch(self):
-        return "x86_32"
-
-    def get_pde_shift(self, pse, pae):
-        if pse and pae:
-            # PSE is ignored when PAE is available.
-            return 21
-        elif not pse and pae:
-            # Only PAE. Page size is 2MiB
-            return 21
-        elif pse and not pae:
-            # Only PSE. Page size is 4MiB.
-            return 22
-        elif not pse and not pae:
-            # Default.
-            # Manual suggests this shouldn't be possible because the page extension bit in the pde would be ignored.
-            # Yet, QEMU doesn't respect this rule and here we are.
-            return 21
         else:
-            raise Exception("Unreachable")
-
-    def get_entry_size(self):
-        return 8 if pae else 4
-
-    def parse_tables(self, cache, args):
-        # Check that paging is enabled, otherwise no point to continue.
-        if has_paging_enabled() == False:
-            raise Exception("Paging is not enabled")
-
-        pt_addr = None
-        if args.cr3:
-            pt_addr = int(args.cr3[0], 16)
-        else:
-            pt_addr = int(gdb.parse_and_eval("$cr3").cast(gdb.lookup_type("unsigned long")))
-            # TODO: Check if these attribute bits in the cr3 need to be respected.
-            pt_addr = pt_addr & (~0xfff)
-
-        pse = retrieve_pse()
-        pae = retrieve_pae()
-        pde_shift = self.get_pde_shift(pse=pse, pae=pae)
-
-        page_ranges = None
-        if pt_addr in cache:
-            page_ranges = cache[pt_addr]
-        else:
-            pdpes = None
+            pae = retrieve_pae()
+            pde_shift = self.get_pde_shift()
             entry_size = self.get_entry_size()
+
+            pdpes = None
             if pae:
                 dummy_pml4 = PML4_Entry(pt_addr, 0)
                 num_entries = 4
@@ -371,7 +346,7 @@ class PT_x86_32_Backend(PT_x86_Common_Backend, PTArchBackend):
             small_pages = []
             for pte in ptes:
                 small_pages.append(create_page_from_pte(pte))
-            page_ranges = optimize(large_pages, big_pages, small_pages, rwxs_semantically_similar)
+            page_ranges = optimize(large_pages, big_pages, small_pages, rwxs_semantically_similar, requires_physical_contiguity)
 
         # Cache the page table if caching is set.
         # Caching happens before the filter is applied.
