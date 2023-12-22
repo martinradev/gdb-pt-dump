@@ -16,6 +16,9 @@ class ImageContainer:
     def get_linux_x86_64(self):
         return os.path.join(self.images_dir, "linux_x86_64")
 
+    def get_kolibri_x86_32(self):
+        return os.path.join(self.images_dir, "kolibri_x86_32")
+
     def get_linux_arm_64(self):
         return os.path.join(self.images_dir, "linux_arm_64")
 

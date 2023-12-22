@@ -599,6 +599,31 @@ def test_pt_walk_golden_images(request, arch_name, image_name):
 
     assert(expected_data == generated_data)
 
+def test_pt_x86_32():
+    vm = VM_X86_64(ImageContainer().get_kolibri_x86_32(), fda_name = "kolibri.img")
+    vm.start()
+
+    time.sleep(15)
+
+    gdb = GdbCommandExecutor(vm)
+    res = gdb.run_cmd("pt")
+    ranges = parse_va_ranges("x86_64", res.output)
+    assert(len(ranges) > 0)
+
+    monitor = QemuMonitorExecutor(vm)
+
+    for r in ranges:
+        addr = r.va_start
+        data = monitor.read_virt_memory(addr, 4)
+        assert(len(data) == 4)
+
+    res = gdb.run_cmd(f"pt -walk {hex(ranges[0].va_start)}")
+    assert("Last stage faulted" not in res.output)
+
+    res = gdb.run_cmd("pt -ss Kolibri")
+    occs = parse_occurrences("x86_64", res.output)
+    assert(len(occs) > 1)
+
 if __name__ == "__main__":
     print("This code should be invoked via 'pytest':", file=sys.stderr)
     print("")
