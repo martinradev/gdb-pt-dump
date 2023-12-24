@@ -79,135 +79,15 @@ class Aarch64_Block():
         return is_user_executable(self) or is_kernel_executable(self)
 
 class Aarch64_Table():
-    def __init__(self, pa, va, lvl, pxn, xn, permissions):
+    def __init__(self, pa, va, pxn, xn, permissions):
         self.va = va
         self.pa = pa
-        self.lvl = lvl
         self.permissions = permissions
         self.pxn = pxn
         self.xn = xn
 
 def aarch64_semantically_similar(p1: Aarch64_Block, p2: Aarch64_Block) -> bool:
     return p1.xn == p2.xn and p1.pxn == p2.pxn and p1.permissions == p2.permissions
-
-def aarch64_parse_entries(phys_mem, tbl, as_size, granule, lvl):
-    # lvl starts from one to be in sync with the armv7 docs
-    entries = None
-    target_address_low = None
-    last_level = None
-    sizes = None
-    index_ranges_per_lvl = []
-    try:
-        # `as_size == 25` implies 39-bit VAs, which only use 3-level page tables
-        if granule == PT_AARCH64_4KB_PAGE and as_size == 39:
-            entries = []
-            try:
-                entries = split_range_into_int_values(read_page(phys_mem, tbl.pa), 8)
-            except:
-                pass
-            target_address_low = 12
-            last_level = 3
-            sizes = [PT_SIZE_1GIB, PT_SIZE_2MIB, PT_SIZE_4K]
-            index_ranges_per_lvl = [(30, 38), (21, 29), (12, 20)]
-        elif granule == PT_AARCH64_4KB_PAGE:
-            entries = []
-            try:
-                entries = split_range_into_int_values(read_page(phys_mem, tbl.pa), 8)
-            except:
-                pass
-            target_address_low = 12
-            last_level = 4
-            sizes = [PT_SIZE_512GIB, PT_SIZE_1GIB, PT_SIZE_2MIB, PT_SIZE_4K]
-            index_ranges_per_lvl = [(39, 47), (30, 38), (21, 29), (12, 20)]
-        elif granule == PT_AARCH64_64KB_PAGE:
-            entries = []
-            try:
-                entries = split_range_into_int_values(read_64k_page(phys_mem, tbl.pa), 8)
-            except:
-                pass
-            target_address_low = 16
-            last_level = 3
-            sizes = [PT_SIZE_4TB, PT_SIZE_512MIB, PT_SIZE_64K]
-            index_ranges_per_lvl = [(42, 48), (29, 41), (16, 28)]
-        elif granule == PT_AARCH64_16KB_PAGE:
-            entries = []
-            try:
-                entries = split_range_into_int_values(read_16k_page(phys_mem, tbl.pa), 8)
-            except:
-                pass
-            target_address_low = 14
-            last_level = 4
-            sizes = [PT_SIZE_128TB, PT_SIZE_64GIB, PT_SIZE_32MIB, PT_SIZE_16K]
-            index_ranges_per_lvl = [(47, 47), (36, 46), (25, 35), (14, 24)]
-        else:
-            raise Exception(f"Unknown granule size: {granule}")
-    except Exception as e:
-        print(e)
-        return [], []
-    tables = []
-    blocks = []
-    for i, pa in enumerate(entries):
-        is_valid = bool(pa & 0x1)
-        if is_valid:
-            bit1 = extract(pa, 1, 1)
-            bit1and2 = extract(pa, 0, 1)
-            if (lvl == 4 and bit1 == 0):
-                continue
-            # TODO: Write comment about contiguous bit
-            contiguous_bit = extract(pa, 52, 52)
-            is_block_or_page = (lvl < last_level and bit1and2 == 1) or lvl == last_level or contiguous_bit
-            is_table = (not is_block_or_page)
-            address_contrib = (i << (index_ranges_per_lvl[lvl-1][0]))
-            child_va = tbl.va | address_contrib
-            if is_table:
-                next_level_address = extract_no_shift(pa, target_address_low, 47)
-                permissions = extract(pa, 61, 62)
-                xn = (extract(pa, 60, 60) == 0x1) | tbl.xn
-                pxn = extract(pa, 59, 59) == 0x1 | tbl.pxn
-                tables.append(Aarch64_Table(next_level_address, child_va, tbl.lvl + 1, pxn, xn, permissions))
-            else:
-                xn = (extract(pa, 54, 54) == 0x1) | tbl.xn
-                pxn = (extract(pa, 53, 53) == 0x1) | tbl.pxn
-                phys_addr = extract_no_shift(pa, target_address_low, 47)
-                permissions = extract(pa, 6, 7)
-                # TODO: handle 64k page size
-                size = sizes[lvl - 1]
-                blocks.append(Aarch64_Block(child_va, phys_addr, size, xn, pxn, permissions))
-    return tables, blocks
-
-def arm_traverse_table(phys_mem, pt_addr, as_size, granule_size, leading_bit):
-    root = Aarch64_Table(pt_addr, 0, 1, 0, 0, 0)
-    tables_lvl1, blocks_lvl1 = aarch64_parse_entries(phys_mem, root, as_size, granule_size, lvl=1)
-
-    tables_lvl2 = []
-    blocks_lvl2 = []
-    for tmp_tb in tables_lvl1:
-        tmp_tables, tmp_blocks = aarch64_parse_entries(phys_mem, tmp_tb, as_size, granule_size, lvl=2)
-        tables_lvl2.extend(tmp_tables)
-        blocks_lvl2.extend(tmp_blocks)
-
-    tables_lvl3 = []
-    blocks_lvl3 = []
-    for tmp_tb in tables_lvl2:
-        tmp_tables, tmp_blocks = aarch64_parse_entries(phys_mem, tmp_tb, as_size, granule_size, lvl=3)
-        tables_lvl3.extend(tmp_tables)
-        blocks_lvl3.extend(tmp_blocks)
-
-    tables_lvl4 = []
-    blocks_lvl4 = []
-    if granule_size != 64 * 1024: # With 64 KiB granule, one level is ignored.
-        for tmp_tb in tables_lvl3:
-            tmp_tables, tmp_blocks = aarch64_parse_entries(phys_mem, tmp_tb, as_size, granule_size, lvl=4)
-            tables_lvl4.extend(tmp_tables)
-            blocks_lvl4.extend(tmp_blocks)
-
-    all_blocks = blocks_lvl1 + blocks_lvl2 + blocks_lvl3 + blocks_lvl4
-
-    if leading_bit == 1:
-        for block in all_blocks:
-            block.va = make_canonical(block.va | (1<<as_size), as_size+1)
-
-    return all_blocks
 
 def print_stats():
     print(a64_def.pt_tcr.check())
@@ -329,6 +209,12 @@ class PT_Aarch64_Backend(PTArchBackend):
     def get_filter_architecture_specific(self, filter_name, has_superuser_filter, has_user_filter):
         raise exception(f"Uknown filter {filter_name}")
 
+    def get_ttbr0_el1(self):
+        return int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("unsigned long")))
+
+    def get_ttbr1_el1(self):
+        return int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("unsigned long")))
+
     def determine_ttbr0_granule_size(self):
         tb0_granule_size = None
         tg0 = a64_def.pt_tcr.TG0
@@ -363,11 +249,69 @@ class PT_Aarch64_Backend(PTArchBackend):
     def determine_ttbr1_address_space_limit(self):
         return 64 - a64_def.pt_tcr.T1SZ
 
-    def get_ttbr0_el1(self):
-        return int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("unsigned long")))
+    def aarch64_parse_entries(self, tbl, level_range, as_size, granule, is_last_level):
+        # lvl starts from one to be in sync with the armv7 docs
+        entries = []
+        start_bit = int(math.log2(granule))
 
-    def get_ttbr1_el1(self):
-        return int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("unsigned long")))
+        try:
+            entries = split_range_into_int_values(read_arbitrary_page(self.phys_mem, tbl.pa, granule), 8)
+        except:
+            pass
+
+        tables = []
+        blocks = []
+        for i, pa in enumerate(entries):
+            is_valid = bool(pa & 0x1)
+            if is_valid:
+                bit1 = extract(pa, 1, 1)
+                bit1and2 = extract(pa, 0, 1)
+                contiguous_bit = extract(pa, 52, 52)
+                is_block_or_page = (bit1and2 == 1) or is_last_level
+                is_table = (not is_block_or_page)
+                address_contrib = (i << level_range[0])
+                child_va = tbl.va | address_contrib
+                if is_table:
+                    next_level_address = extract_no_shift(pa, start_bit, 47)
+                    permissions = extract(pa, 61, 62)
+                    xn = (extract(pa, 60, 60) == 0x1) | tbl.xn
+                    pxn = extract(pa, 59, 59) == 0x1 | tbl.pxn
+                    tables.append(Aarch64_Table(next_level_address, child_va, pxn, xn, permissions))
+                else:
+                    xn = (extract(pa, 54, 54) == 0x1) | tbl.xn
+                    pxn = (extract(pa, 53, 53) == 0x1) | tbl.pxn
+                    phys_addr = extract_no_shift(pa, start_bit, 47)
+                    permissions = extract(pa, 6, 7)
+                    size = (1 << level_range[0])
+                    blocks.append(Aarch64_Block(child_va, phys_addr, size, xn, pxn, permissions))
+
+        return tables, blocks
+
+    def arm_traverse_table(self, pt_addr, as_size, granule_size, leading_bit):
+        num_entries_in_page = int(granule_size / 8)
+        level_bit_coverage = int(math.log2(num_entries_in_page))
+        low_bit_inclusive = int(math.log2(granule_size))
+        top_bit_inclusive = as_size - 1
+
+        table_ranges = list(reversed([(low, min(low + level_bit_coverage, top_bit_inclusive)) for low in range(low_bit_inclusive, top_bit_inclusive, level_bit_coverage)]))
+
+        root = Aarch64_Table(pt_addr, 0, 0, 0, 0)
+        tables = [root]
+        all_blocks = []
+        for (level, address_range) in enumerate(table_ranges):
+            is_last_level = (level + 1) == len(table_ranges)
+            new_tables = []
+            for table in tables:
+                cur_tables, cur_blocks = self.aarch64_parse_entries(table, address_range, as_size, granule_size, is_last_level)
+                new_tables.extend(cur_tables)
+                all_blocks.extend(cur_blocks)
+            tables = new_tables
+
+        if leading_bit == 1:
+            for block in all_blocks:
+                block.va = make_canonical(block.va | (1<<as_size), as_size+1)
+
+        return all_blocks
 
     def parse_tables(self, cache, args):
         requires_physical_contiguity = args.phys_verbose
@@ -386,26 +330,26 @@ class PT_Aarch64_Backend(PTArchBackend):
 
         all_blocks_0 = []
         all_blocks_1 = []
-        if not args.ttbr1_el1:
+        if not args.ttbr0_el1:
             # Try to get the blocks from TTBR0 only if user has not specifically requested interpreting
             # the provided TTBR1.
-            tb0 = extract_no_shift(tb0, 10, 47)
+            tb0 = extract_no_shift(tb0, 10, self.determine_ttbr0_address_space_limit() - 1)
             if tb0 in cache:
                 all_blocks_0 = cache[tb0]
             else:
                 tb0_granule_size = self.determine_ttbr0_granule_size()
                 tb0_sz = self.determine_ttbr0_address_space_limit()
-                all_blocks_0 = arm_traverse_table(self.phys_mem, tb0, tb0_sz, tb0_granule_size, 0)
+                all_blocks_0 = self.arm_traverse_table(tb0, tb0_sz, tb0_granule_size, 0)
                 all_blocks_0 = optimize([], [], all_blocks_0, aarch64_semantically_similar, requires_physical_contiguity)
 
-        if not args.ttbr0_el1:
-            tb1 = extract_no_shift(tb1, 10, 47)
+        if not args.ttbr1_el1:
+            tb1 = extract_no_shift(tb1, 10, self.determine_ttbr1_address_space_limit() - 1)
             if tb1 in cache:
                 all_blocks_1 = cache[tb1]
             else:
                 tb1_granule_size = self.determine_ttbr1_granule_size()
                 tb1_sz = self.determine_ttbr1_address_space_limit()
-                all_blocks_1 = arm_traverse_table(self.phys_mem, tb1, tb1_sz, tb1_granule_size, 1)
+                all_blocks_1 = self.arm_traverse_table(tb1, tb1_sz, tb1_granule_size, 1)
                 all_blocks_1 = optimize([], [], all_blocks_1, aarch64_semantically_similar, requires_physical_contiguity)
 
         # TODO: Consider the top-byte ignore rules
@@ -425,13 +369,12 @@ class PT_Aarch64_Backend(PTArchBackend):
         th = gdb.selected_inferior()
         found_page = None
         kaslr_addresses = []
+        stext_phys_base_addr = 0x40210000
+        text_phys_base_addr = 0x40200000
         for page in tmp:
-            page_2mib_aligned_start = page.va if page.va % PT_SIZE_2MIB == 0 else (page.va & ~(PT_SIZE_2MIB - 1)) + PT_SIZE_2MIB
-            for start_addr in range(page_2mib_aligned_start, page.va + page.page_size, PT_SIZE_2MIB):
-                first_byte = th.read_memory(start_addr, 1)
-                if first_byte[0] == b'\x4d':
-                    found_page = page
-                    break
+            if page.phys[0] == stext_phys_base_addr or page.phys[0] == text_phys_base_addr:
+                found_page = page
+                break
         if found_page:
             kaslr_addresses.append(found_page.va)
             if should_print:
