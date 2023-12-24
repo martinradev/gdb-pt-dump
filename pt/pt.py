@@ -421,9 +421,9 @@ class PageTableDump(gdb.Command):
                     filters.append(self.backend.get_filter_is_not_executable(has_superuser_filter, has_user_filter))
                 elif f == "w|x" or f == "x|w":
                     filters.append(self.backend.get_filter_is_writeable_or_executable(has_superuser_filter, has_user_filter))
-                elif f == "u" or f == "_s":
+                elif f == "u":
                     filters.append(self.backend.get_filter_is_user_page(has_superuser_filter, has_user_filter))
-                elif f == "s" or f == "_u":
+                elif f == "s":
                     filters.append(self.backend.get_filter_is_superuser_page(has_superuser_filter, has_user_filter))
                 elif f == "ro":
                     filters.append(self.backend.get_filter_is_read_only_page(has_superuser_filter, has_user_filter))
