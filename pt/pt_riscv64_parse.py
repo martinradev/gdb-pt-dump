@@ -2,6 +2,8 @@ from pt.pt_common import *
 from pt.pt_arch_backend import PTArchBackend
 from pt.pt_constants import *
 
+import math
+
 def get_address_space_size_from_mode(mode_value):
     if mode_value == 8:
         return 39
@@ -45,26 +47,26 @@ class Riscv64_Page():
 
     def to_string(self, phys_verbose):
         prefix = ""
-        if not page.s:
+        if not self.s:
             prefix = bcolors.CYAN + " " + bcolors.ENDC
-        elif page.s:
+        elif self.s:
             prefix = bcolors.MAGENTA + " " + bcolors.ENDC
 
         varying_str = None
         if phys_verbose:
             fmt = f"{{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}} : {{:>{PrintConfig.phys_len}}}"
-            varying_str = fmt.format(hex(page.va), hex(page.page_size), hex(page.phys[-1]))
+            varying_str = fmt.format(hex(self.va), hex(self.page_size), hex(self.phys[-1]))
         else:
             fmt = f"{{:>{PrintConfig.va_len}}} : {{:>{PrintConfig.page_size_len}}}"
-            varying_str = fmt.format(hex(page.va), hex(page.page_size))
-        s = f"{varying_str} | W:{int(page.w)} X:{int(page.x)} R:{int(page.r)} S:{int(page.s)}"
+            varying_str = fmt.format(hex(self.va), hex(self.page_size))
+        s = f"{varying_str} | W:{int(self.w)} X:{int(self.x)} R:{int(self.r)} S:{int(self.s)}"
 
         res = ""
-        if page.x and page.w:
+        if self.x and self.w:
             res = prefix + bcolors.BLUE + " " + s + bcolors.ENDC
-        elif page.w and not page.x:
+        elif self.w and not self.x:
             res = prefix + bcolors.GREEN + " " + s + bcolors.ENDC
-        elif page.x:
+        elif self.x:
             res = prefix + bcolors.RED + " " + s + bcolors.ENDC
         else:
             res = prefix + " " + s
@@ -131,7 +133,41 @@ class PT_RiscV64_Backend(PTArchBackend):
         return "riscv64"
 
     def walk(self, va):
-        raise NotImplementedError("'-walk' is not implemented for rv64")
+        entry_size = 8
+        num_entries_per_page = int(4096 / entry_size)
+        bits_per_level = int(math.log2(num_entries_per_page))
+
+        satp = int(gdb.parse_and_eval("$satp").cast(gdb.lookup_type("unsigned long")))
+        pt_addr = extract(satp, 0, 43) << 12
+        mode_value = extract(satp, 60, 63)
+        as_size = get_address_space_size_from_mode(mode_value)
+
+        pt_walk = PageTableWalkInfo(va)
+        pt_walk.add_register_stage("satp", pt_addr)
+
+        iter = 0
+        while True:
+            top_bit = as_size - 1 - iter * bits_per_level
+            low_bit = top_bit - bits_per_level + 1
+            entry_index = extract(va, low_bit, top_bit)
+            entry_page_pa = pt_addr + entry_index * entry_size
+            entry_value = int.from_bytes(self.phys_mem.read(entry_page_pa, entry_size), 'little')
+            entry_value_pa_no_meta = (extract(entry_value, 10, 53)) << 12
+            meta_bits = extract_no_shift(entry_value, 0, 9)
+            pt_walk.add_stage(f"Level{iter}", entry_index, entry_value_pa_no_meta, meta_bits)
+
+            if extract(meta_bits, 0, 0) == 0:
+                # Not present
+                pt_walk.set_faulted()
+
+            is_leaf = (extract(meta_bits, 1, 3) != 0)
+            if is_leaf:
+                break
+
+            pt_addr = entry_value_pa_no_meta
+            iter += 1
+
+        return pt_walk
 
     def get_filter_is_writeable(self, has_superuser_filter, has_user_filter):
         return lambda p: p.w
