@@ -15,10 +15,10 @@ def verify_all_search_occurrences(monitor, occs, mem_len, checker):
         assert(checker(occ, memory))
 
 def get_all_arch():
-    return ["x86_64", "arm_64"]
+    return ["x86_64", "arm_64", "riscv"]
 
 def get_all_images():
-    return [("x86_64", "linux_x86_64"), ("arm_64", "linux_arm_64_4k"), ("arm_64", "linux_arm_64_4k_kpti"), ("arm_64", "linux_arm_64_64k")]
+    return [("x86_64", "linux_x86_64"), ("arm_64", "linux_arm_64_4k"), ("arm_64", "linux_arm_64_4k_kpti"), ("arm_64", "linux_arm_64_64k"), ("riscv", "linux_riscv")]
 
 def create_resources(arch_name, linux_image, kaslr):
     vm = create_linux_vm(arch_name, linux_image)
@@ -109,14 +109,14 @@ def test_pt_range_exists(create_resources_fixture, arch_name, linux_image):
     assert(len(ranges) > 0)
     for r in ranges:
         print("Range base is", hex(r.va_start))
-        # BUG: for some reason qemu does not allow reading these physical addresses
-        if r.va_start == 0xffff800010010000 or r.va_start == 0xffff800010030000 or r.va_start == 0xffffffc008010000 or r.va_start == 0xffffffc008030000 or r.va_start == 0xfffffe0008020000 or r.va_start == 0xfffffe0008040000 or r.va_start == 0xfffffe0008060000 or r.va_start == 0xfffffe00084e0000:
-            print(f"Skip reading {hex(r.va_start)} due to a weird qemu bug")
-            continue
-
         addr = r.va_start
         data = monitor.read_virt_memory(addr, 4)
         assert(len(data) == 4)
+
+        # BUG: for some reason qemu does not allow reading these physical addresses
+        if r.va_start == 0xffff800010010000 or r.va_start == 0xffff800010030000 or r.va_start == 0xffffffc008010000 or r.va_start == 0xffffffc008030000 or r.va_start == 0xfffffe0008020000 or r.va_start == 0xfffffe0008040000 or r.va_start == 0xfffffe0008060000 or r.va_start == 0xfffffe00084e0000 or r.va_start == 0xff20000000245000 or r.va_start == 0xff2000000024d000:
+            print(f"Skip reading {hex(r.va_start)} due to a weird qemu bug")
+            continue
 
         addr = r.va_start + int(r.length / 2)
         data = monitor.read_virt_memory(addr, 4)

@@ -114,6 +114,42 @@ class MetaFlagsArm64(MetaFlags):
     def super_executable(self):
         return self.sx
 
+class MetaFlagsRiscv(MetaFlags):
+    def __init__(self, r, w, x, s):
+        super().__init__()
+        self.r = r
+        self.w = w
+        self.x = x
+        self.s = s
+
+    def __eq__(self, other):
+        fields = ["r", "w", "x", "s"]
+        return all(getattr(self, attr) == getattr(other, attr) for attr in fields)
+
+    def executable(self):
+        return self.x
+
+    def writeable(self):
+        return self.w
+
+    def user_accessible(self):
+        return any([self.r, self.w, self.x]) and not self.s
+
+    def user_writeable(self):
+        return self.w and not self.s
+
+    def user_executable(self):
+        return self.w and not self.s
+
+    def super_accessible(self):
+        return any([self.r, self.w, self.x]) and self.s
+
+    def super_writeable(self):
+        return self.w and self.s
+
+    def super_executable(self):
+        return self.x and self.s
+
 class VirtRange():
     def __init__(self, va_start, length, flags):
         self.va_start = va_start
@@ -158,12 +194,25 @@ def _parse_va_range_arm_64(line):
         return virt_range
     return None
 
+def _parse_va_range_riscv(line):
+    pattern = r"\s*([0-9a-fA-Fx]+)\s*:\s*([0-9a-fA-Fx]+)\s*\|\s*W:(\d+)\s*X:(\d+)\s*R:(\d+)\s*S:(\d+)"
+    line = ansi_escape(line)
+    match = re.match(pattern, line)
+    if match:
+        range_va, range_size, flag_w, flag_x, flag_r, flag_s = match.groups()
+        flags = MetaFlagsRiscv(w=bool(int(flag_w)), x=bool(int(flag_x)), s=bool(int(flag_s)), r=bool(int(flag_r)))
+        virt_range = VirtRange(int(range_va, 16), int(range_size, 16), flags)
+        return virt_range
+    return None
+
 def parse_va_ranges(arch, command_output):
     func = None
     if arch == "x86_64":
         func = _parse_va_range_x86
     elif arch == "arm_64":
         func = _parse_va_range_arm_64
+    elif arch == "riscv":
+        func = _parse_va_range_riscv
     else:
         raise Exception("Unknown architecture")
 
@@ -207,10 +256,27 @@ def _parse_occurrences_arm_64(command_output):
             occs.append(occ)
     return occs
 
+def _parse_occurrences_riscv(command_output):
+    occ_lines = command_output.split("\n")
+    pattern = r"Found at (\w+) in\s+(\w+)\s+:\s+(\w+)\s+\|\s+W:(\d+)\s+X:(\d+)\s+R:(\d+)\s+S:(\d+)"
+    occs = []
+    for line in occ_lines:
+        line = ansi_escape(line)
+        match = re.match(pattern, line)
+        if match:
+            found_at, range_va, range_size, flag_w, flag_x, flag_r, flag_s = match.groups()
+            flags = MetaFlagsRiscv(w=bool(int(flag_w)), x=bool(int(flag_x)), s=bool(int(flag_s)), r=bool(int(flag_r)))
+            virt_range = VirtRange(int(range_va, 16), int(range_size, 16), flags)
+            occ = Occurrence(int(found_at, 16), virt_range)
+            occs.append(occ)
+    return occs
+
 def parse_occurrences(arch, command_output):
     if arch == "x86_64":
         return _parse_occurrences_x86(command_output)
     elif arch == "arm_64":
         return _parse_occurrences_arm_64(command_output)
+    elif arch == "riscv":
+        return _parse_occurrences_riscv(command_output)
     else:
         raise Exception("Unknown architecture")

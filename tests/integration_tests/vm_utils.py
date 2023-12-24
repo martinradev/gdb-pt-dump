@@ -20,6 +20,9 @@ class ImageContainer:
     def get_linux_x86_64(self):
         return os.path.join(self.images_dir, "linux_x86_64")
 
+    def get_linux_riscv(self):
+        return os.path.join(self.images_dir, "linux_riscv")
+
     def get_kolibri_x86_32(self):
         return os.path.join(self.images_dir, "kolibri_x86_32")
 
@@ -247,6 +250,63 @@ class VM_Arm_64(VM):
     def get_fixed_known_address(self):
         return 0xfffffffe00000000
 
+class VM_Riscv(VM):
+    def __init__(self, image_dir):
+        super().__init__(arch="riscv", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT)
+        self.image_dir = image_dir
+
+    def start(self, memory_mib=64, kvm=False, kaslr=True, num_cores=1):
+        cmd = []
+        cmd.extend(["qemu-system-riscv64"])
+
+        cpu_options = []
+        if kvm:
+            cpu_options.append("kvm64")
+        else:
+            cpu_options.append("qemu64")
+
+        cmd.extend(["-cpu", "rv64"])
+
+        kernel_image = os.path.join(self.image_dir, "kernel.img")
+        cmd.extend(["-kernel", kernel_image])
+
+        initrd_image = os.path.join(self.image_dir, "initrd.img")
+        cmd.extend(["-initrd", initrd_image])
+
+        cmd.extend(["-machine", "virt"])
+
+        boot_string = "root=/dev/ram rdinit=/init console=ttyS0 "
+        if kaslr:
+            boot_string += " kaslr"
+        else:
+            boot_string += " nokaslr"
+
+        cmd.extend(["-append", boot_string])
+
+        cmd.extend(["-m", str(memory_mib)])
+
+        cmd.extend(["-qmp", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
+
+        cmd.extend(["-nographic", "-snapshot", "-no-reboot"])
+
+        cmd.extend(["-smp", str(num_cores)])
+
+        cmd.extend(["-s"])
+
+        super().start(cmd)
+
+    def get_default_base_image_kaddr(self):
+        raise Exception("Unimplemented")
+
+    def get_default_base_image_paddr(self):
+        raise Exception("Unimplemented")
+
+    def get_default_physmap_kaddr(self):
+        raise Exception("Unimplemented")
+
+    def get_fixed_known_address(self):
+        raise Exception("Unimplemented")
+
 class QemuMonitorExecutor:
 
     def __init__(self, vm):
@@ -345,6 +405,7 @@ class GdbCommandExecutor:
     def __init__(self, vm):
         self.gdb_server_port = vm.get_gdb_server_port() 
         self.use_multiarch = vm.get_arch() != "x86_64"
+        self.script_root_pt = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../", "../", "pt.py"))
 
     def run_cmd(self, pt_cmd):
         cmd = []
@@ -353,7 +414,11 @@ class GdbCommandExecutor:
         else:
             cmd.extend(["gdb"])
 
+        cmd.extend(["-n"])
         cmd.extend(["-q"])
+        cmd.extend(["-ex", "set confirm off"])
+        cmd.extend(["-ex", "set pagination off"])
+        cmd.extend(["-ex", "source {}".format(self.script_root_pt)])
         cmd.extend(["-ex", f"target remote :{self.gdb_server_port}"])
         cmd.extend(["-ex", pt_cmd])
         cmd.extend(["-ex", "quit"])
@@ -372,6 +437,9 @@ def create_linux_vm(arch_name, image_name = None):
     elif arch_name == "arm_64":
         image = ImageContainer().get_linux_image(image_name) if image_name is not None else ImageContainer().get_linux_arm_64()
         return VM_Arm_64(image)
+    elif arch_name == "riscv":
+        image = ImageContainer().get_linux_image(image_name) if image_name is not None else ImageContainer().get_linux_riscv()
+        return VM_Riscv(image)
     else:
         raise Exception(f"Unknown arch {arch_name}")
 
