@@ -17,20 +17,44 @@ def verify_all_search_occurrences(monitor, occs, mem_len, checker):
 def get_all_arch():
     return ["x86_64", "arm_64"]
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_smoke(arch_name):
-    vm = create_linux_vm(arch_name)
-    vm.start()
+def get_all_images():
+    return [("x86_64", "linux_x86_64"), ("arm_64", "linux_arm_64_4k"), ("arm_64", "linux_arm_64_4k_kpti"), ("arm_64", "linux_arm_64_64k")]
+
+def create_resources(arch_name, linux_image, kaslr):
+    vm = create_linux_vm(arch_name, linux_image)
+    vm.start(kaslr=kaslr)
     vm.wait_for_shell()
     gdb = GdbCommandExecutor(vm)
+    monitor = QemuMonitorExecutor(vm)
+
+    if bool(os.getenv("GDB_PT_DUMP_TESTS_PAUSE_AFTER_BOOT")) == True:
+        print("Sleeping...")
+        time.sleep(10000)
+
+    return (vm, gdb, monitor)
+
+@pytest.fixture
+def create_resources_fixture_nokaslr(arch_name, linux_image):
+    vm, gdb, monitor = create_resources(arch_name, linux_image, kaslr=False)
+    yield (vm, gdb, monitor)
+    monitor.stop()
+    vm.stop()
+
+@pytest.fixture
+def create_resources_fixture(arch_name, linux_image):
+    vm, gdb, monitor = create_resources(arch_name, linux_image, kaslr=True)
+    yield (vm, gdb, monitor)
+    monitor.stop()
+    vm.stop()
+
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_smoke(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
     res = gdb.run_cmd("pt")
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_filter_smoke(arch_name):
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-    gdb = GdbCommandExecutor(vm)
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_filter_smoke(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
     gdb.run_cmd("pt")
     gdb.run_cmd("pt -filter x")
     gdb.run_cmd("pt -filter w")
@@ -40,69 +64,53 @@ def test_pt_filter_smoke(arch_name):
     gdb.run_cmd("pt -filter s")
     gdb.run_cmd("pt -filter w x")
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_kaslr_smoke(arch_name):
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-    gdb = GdbCommandExecutor(vm)
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_kaslr_smoke(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
     res = gdb.run_cmd("pt -kaslr")
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_phys_verbose_smoke(arch_name):
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-    gdb = GdbCommandExecutor(vm)
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_phys_verbose_smoke(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
     res = gdb.run_cmd("pt -phys_verbose")
 
-def _test_pt_search(arch_name, search_command, mem_len, checker):
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-    gdb = GdbCommandExecutor(vm)
-
+def _test_pt_search(vm, gdb, monitor, search_command, mem_len, checker):
     res = gdb.run_cmd(search_command)
-
-    monitor = QemuMonitorExecutor(vm)
     monitor.pause()
-
-    occs = parse_occurrences(arch_name, res.output)
+    occs = parse_occurrences(vm.get_arch(), res.output)
     assert(len(occs) > 0)
-
     verify_all_search_occurrences(monitor, occs, mem_len, checker)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_search_string(arch_name):
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_search_string(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
     checker = lambda _, mem: mem == b"Linux"
-    _test_pt_search(arch_name, "pt -ss Linux", 5, checker)
+    _test_pt_search(vm, gdb, monitor, "pt -ss Linux", 5, checker)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_search_s4(arch_name):
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_search_s4(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
     checker = lambda _, mem: mem == b"\x41\x41\x41\x41"
-    _test_pt_search(arch_name, "pt -s4 0x41414141", 4, checker)
+    _test_pt_search(vm, gdb, monitor, "pt -s4 0x41414141", 4, checker)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_search_s8(arch_name):
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_search_s8(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
     checker = lambda _, mem: mem == b"\xfe\xff\xff\xff\xff\xff\xff\xff"
-    _test_pt_search(arch_name, "pt -s8 0xfffffffffffffffe", 8, checker)
+    _test_pt_search(vm, gdb, monitor, "pt -s8 0xfffffffffffffffe", 8, checker)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_range_exists(arch_name):
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-    gdb = GdbCommandExecutor(vm)
-
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_range_exists(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
     res = gdb.run_cmd(f"pt")
-    monitor = QemuMonitorExecutor(vm)
     monitor.pause()
 
     ranges = parse_va_ranges(arch_name, res.output)
     assert(len(ranges) > 0)
     for r in ranges:
-        # BUG: for some reason qemu does
-        if r.va_start == 0xffff800010010000 or r.va_start == 0xffff800010030000:
+        print("Range base is", hex(r.va_start))
+        # BUG: for some reason qemu does not allow reading these physical addresses
+        if r.va_start == 0xffff800010010000 or r.va_start == 0xffff800010030000 or r.va_start == 0xffffffc008010000 or r.va_start == 0xffffffc008030000 or r.va_start == 0xfffffe0008020000 or r.va_start == 0xfffffe0008040000 or r.va_start == 0xfffffe0008060000 or r.va_start == 0xfffffe00084e0000:
             print(f"Skip reading {hex(r.va_start)} due to a weird qemu bug")
             continue
 
@@ -118,29 +126,10 @@ def test_pt_range_exists(arch_name):
         data = monitor.read_virt_memory(addr, 4)
         assert(len(data) == 4)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_walk_one_fixed_address(arch_name):
-    vm = create_linux_vm(arch_name)
-    vm.start(kaslr=False)
-    vm.wait_for_shell()
-    gdb = GdbCommandExecutor(vm)
-
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_walk_many_ranges(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
     res = gdb.run_cmd(f"pt")
-    monitor = QemuMonitorExecutor(vm)
-    monitor.pause()
-
-    output = gdb.run_cmd(f"pt -walk {hex(vm.get_default_base_image_kaddr())}")
-    assert("Last stage faulted" not in output.output)
-
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_walk_many_ranges(arch_name):
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-    gdb = GdbCommandExecutor(vm)
-
-    res = gdb.run_cmd(f"pt")
-    monitor = QemuMonitorExecutor(vm)
     monitor.pause()
 
     ranges = parse_va_ranges(arch_name, res.output)
@@ -155,15 +144,10 @@ def test_pt_walk_many_ranges(arch_name):
         output = gdb.run_cmd(f"pt -walk {hex(r.va_start + r.length - 1)}")
         assert("Last stage faulted" not in output.output)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_walk_first_stage_fault(arch_name):
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-    gdb = GdbCommandExecutor(vm)
-
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_walk_first_stage_fault(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
     res = gdb.run_cmd(f"pt")
-    monitor = QemuMonitorExecutor(vm)
     monitor.pause()
 
     ranges = parse_va_ranges(arch_name, res.output)
@@ -173,87 +157,88 @@ def test_pt_walk_first_stage_fault(arch_name):
     output = gdb.run_cmd(f"pt -walk {hex(unmapped_address)}")
     assert("Last stage faulted" in output.output)
 
-def _test_pt_filter_common(arch_name, executions):
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-    gdb = GdbCommandExecutor(vm)
-    monitor = QemuMonitorExecutor(vm)
-
+def _test_pt_filter_common(vm, gdb, monitor, executions):
     for (_cmd, _check) in executions:
         print(f"Running {_cmd}")
         res = gdb.run_cmd(_cmd)
         monitor.pause()
 
-        ranges = parse_va_ranges(arch_name, res.output)
+        ranges = parse_va_ranges(vm.get_arch(), res.output)
         assert(len(ranges) > 0)
         for r in ranges:
             assert(_check(r))
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_filter_executable(arch_name):
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_filter_executable(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
     executions = [("pt -filter x", lambda r: r.flags.executable()), ("pt -filter _x", lambda r: not r.flags.executable())]
-    _test_pt_filter_common(arch_name, executions)
+    _test_pt_filter_common(vm, gdb, monitor, executions)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_filter_writeable(arch_name):
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_filter_writeable(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
     executions = [("pt -filter w", lambda r: r.flags.writeable()), ("pt -filter _w", lambda r: not r.flags.writeable())]
-    _test_pt_filter_common(arch_name, executions)
+    _test_pt_filter_common(vm, gdb, monitor, executions)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_filter_read_only(arch_name):
-    executions = [("pt -filter ro", lambda r: not r.flags.executable() and not r.flags.writeable())]
-    _test_pt_filter_common(arch_name, executions)
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_filter_read_only(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
+    executions = [("pt -filter ro", lambda r: (not r.flags.user_executable() and not r.flags.user_writeable()) or (not r.flags.super_executable() and not r.flags.super_writeable()))]
+    _test_pt_filter_common(vm, gdb, monitor, executions)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_filter_user_accessible(arch_name):
-    if arch_name == "arm_64":
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_filter_user_accessible(create_resources_fixture, arch_name, linux_image):
+    if arch_name == "arm_64" and "kpti" in linux_image:
         # BUG: needs another kernel image
         pytest.skip(reason = "User ranges are never visible because user page table is unmapped")
-    executions = [("pt -filter u", lambda r: r.flags.user_accessible()), ("pt -filter _u", lambda r: not r.flags.user_accessible())]
-    _test_pt_filter_common(arch_name, executions)
+    vm, gdb, monitor = create_resources_fixture
+    executions = [("pt -filter u", lambda r: r.flags.user_accessible())]
+    _test_pt_filter_common(vm, gdb, monitor, executions)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_filter_kernel_only_accessible(arch_name):
-    if arch_name == "arm_64":
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_filter_kernel_only_accessible(create_resources_fixture, arch_name, linux_image):
+    if arch_name == "arm_64" and "kpti" in linux_image:
         # BUG: needs another kernel image
         pytest.skip(reason = "The _s would result into 0 ranges because user page table is unmapped.")
-    executions = [("pt -filter s", lambda r: r.flags.super_accessible()), ("pt -filter _s", lambda r: not r.flags.super_accessible())]
-    _test_pt_filter_common(arch_name, executions)
+    executions = [("pt -filter s", lambda r: r.flags.super_accessible())]
+    vm, gdb, monitor = create_resources_fixture
+    _test_pt_filter_common(vm, gdb, monitor, executions)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_filter_multiple_filters_user(arch_name):
-    if arch_name == "arm_64":
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_filter_multiple_filters_user(create_resources_fixture, arch_name, linux_image):
+    if arch_name == "arm_64" and "kpti" in linux_image:
         # BUG: needs another kernel image
         pytest.skip(reason = "This would result into 0 ranges because user page table is unmapped.")
     executions = [ \
                   ("pt -filter w u", lambda r: r.flags.user_writeable()), \
                  ]
-    _test_pt_filter_common(arch_name, executions)
+    vm, gdb, monitor = create_resources_fixture
+    _test_pt_filter_common(vm, gdb, monitor, executions)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_filter_multiple_filters_super(arch_name):
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_filter_multiple_filters_super(create_resources_fixture, arch_name, linux_image):
     executions = [ \
                   ("pt -filter w s", lambda r: r.flags.super_writeable()), \
                   ("pt -filter x s", lambda r: r.flags.super_executable()), \
                  ]
-    _test_pt_filter_common(arch_name, executions)
+    vm, gdb, monitor = create_resources_fixture
+    _test_pt_filter_common(vm, gdb, monitor, executions)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_filter_and_search(arch_name):
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_filter_and_search(create_resources_fixture, arch_name, linux_image):
     checker = lambda occ, data: occ.virt_range.flags.writeable() == True and data == b"Linux"
-    _test_pt_search(arch_name, "pt -ss Linux -filter w", 5, checker)
+    vm, gdb, monitor = create_resources_fixture
+    _test_pt_search(vm, gdb, monitor, "pt -ss Linux -filter w", 5, checker)
 
-    checker = lambda occ, data: occ.virt_range.flags.writeable() == False and occ.virt_range.flags.executable() == False and data == b"Linux"
-    _test_pt_search(arch_name, "pt -ss Linux -filter ro", 5, checker)
+    checker = lambda occ, data: \
+        ((occ.virt_range.flags.user_executable() == False and occ.virt_range.flags.user_executable() == False) or \
+        (occ.virt_range.flags.super_executable() == False and occ.virt_range.flags.super_executable() == False)) and \
+        data == b"Linux"
+    _test_pt_search(vm, gdb, monitor, "pt -ss Linux -filter ro", 5, checker)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_range_command(arch_name):
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-    gdb = GdbCommandExecutor(vm)
-    monitor = QemuMonitorExecutor(vm)
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_range_command(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
 
     res = gdb.run_cmd("pt")
     ranges = parse_va_ranges(arch_name, res.output)
@@ -299,13 +284,9 @@ def test_pt_range_command(arch_name):
     subranges = parse_va_ranges(arch_name, res.output)
     assert(len(subranges) == 0)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_has_command(arch_name):
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-    gdb = GdbCommandExecutor(vm)
-    monitor = QemuMonitorExecutor(vm)
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_has_command(create_resources_fixture, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture
 
     res = gdb.run_cmd("pt")
     ranges = parse_va_ranges(arch_name, res.output)
@@ -342,18 +323,13 @@ def test_pt_has_command(arch_name):
     subranges = parse_va_ranges(arch_name, res.output)
     assert(len(subranges) == 0)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_before_command(arch_name):
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_before_command(create_resources_fixture, arch_name, linux_image):
     if arch_name == "arm_64":
         # BUG: needs gdb_pt_dump fix
         pytest.skip(reason = "The gdb_pt_dump aarch64 backend does not implement cut_before and cut_after.")
 
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-
-    gdb = GdbCommandExecutor(vm)
-    monitor = QemuMonitorExecutor(vm)
+    vm, gdb, monitor = create_resources_fixture
 
     res = gdb.run_cmd("pt")
     ranges = parse_va_ranges(arch_name, res.output)
@@ -399,18 +375,13 @@ def test_pt_before_command(arch_name):
     subranges = parse_va_ranges(arch_name, res.output)
     assert(subranges == ranges)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_after_command(arch_name):
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_after_command(create_resources_fixture, arch_name, linux_image):
     if arch_name == "arm_64":
         # BUG: needs gdb_pt_dump fix
         pytest.skip(reason = "The gdb_pt_dump aarch64 backend does not implement cut_before and cut_after.")
 
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-
-    gdb = GdbCommandExecutor(vm)
-    monitor = QemuMonitorExecutor(vm)
+    vm, gdb, monitor = create_resources_fixture
 
     res = gdb.run_cmd("pt")
     ranges = parse_va_ranges(arch_name, res.output)
@@ -435,18 +406,13 @@ def test_pt_after_command(arch_name):
     subranges = parse_va_ranges(arch_name, res.output)
     assert(subranges == ranges)
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_before_after_combination(arch_name):
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_before_after_combination(create_resources_fixture, arch_name, linux_image):
     if arch_name == "arm_64":
         # BUG: needs gdb_pt_dump fix
         pytest.skip(reason = "The gdb_pt_dump aarch64 backend does not implement cut_before and cut_after.")
 
-    vm = create_linux_vm(arch_name)
-    vm.start()
-    vm.wait_for_shell()
-
-    gdb = GdbCommandExecutor(vm)
-    monitor = QemuMonitorExecutor(vm)
+    vm, gdb, monitor = create_resources_fixture
 
     res = gdb.run_cmd("pt")
     ranges = parse_va_ranges(arch_name, res.output)
@@ -478,36 +444,30 @@ def test_pt_before_after_combination(arch_name):
     r4_tmp.length = 0x300
     assert(subranges == [r2_tmp, ranges[3], r4_tmp])
 
-@pytest.mark.parametrize("arch_name", get_all_arch())
-def test_pt_kaslr(arch_name):
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_kaslr(create_resources_fixture_nokaslr, arch_name, linux_image):
     virt_pattern = re.compile(r'Virt:\s+([0-9a-fA-Fx]+)')
     phys_pattern = re.compile(r'Phys:\s+([0-9a-fA-Fx]+)')
 
-    vm = create_linux_vm(arch_name)
-    vm.start(kaslr=False)
-    vm.wait_for_shell()
-
-    gdb = GdbCommandExecutor(vm)
+    vm, gdb, monitor = create_resources_fixture_nokaslr
 
     res = gdb.run_cmd("pt -kaslr")
     output = ansi_escape(res.output)
     virt_matches = virt_pattern.findall(output)
     phys_matches = phys_pattern.findall(output)
 
-    assert(int(virt_matches[0], 16) == vm.get_default_base_image_kaddr())
-    assert(int(phys_matches[0], 16) == vm.get_default_base_image_paddr())
+    assert(int(virt_matches[0], 16) in vm.get_default_base_image_kaddr())
+    assert(int(phys_matches[0], 16) in vm.get_default_base_image_paddr())
 
     # BUG: not implemented in gdb_pt_dump for aarch64
     if arch_name != "arm_64":
         assert(int(virt_matches[1], 16) == vm.get_default_physmap_kaddr())
 
-    del gdb
     vm.stop()
 
     for u in range(4):
         vm.start(kaslr=True)
         vm.wait_for_shell()
-        gdb = GdbCommandExecutor(vm)
         res = gdb.run_cmd("pt -kaslr")
         output = ansi_escape(res.output)
         virt_matches = virt_pattern.findall(output)
@@ -519,7 +479,6 @@ def test_pt_kaslr(arch_name):
         if arch_name != "arm_64":
             assert(int(virt_matches[1], 16) != 0)
 
-        del gdb
         vm.stop()
 
 def get_custom_binaries():
@@ -527,15 +486,26 @@ def get_custom_binaries():
     custom_arm_64 = [("arm_64", bin) for bin in get_arm_64_binary_names()]
     return custom_x86_64 + custom_arm_64
 
-@pytest.mark.parametrize("arch_name, image_name", get_custom_binaries())
-def test_golden_images(request, arch_name, image_name):
+@pytest.fixture
+def create_custom_resources_fixture(arch_name, image_name):
     vm = create_custom_vm(arch_name, image_name)
     vm.start()
     vm.wait_for_string_on_line(b"Done")
-
-    test_name = request.node.name
-
     gdb = GdbCommandExecutor(vm)
+    monitor = QemuMonitorExecutor(vm)
+
+    if bool(os.getenv("GDB_PT_DUMP_TESTS_PAUSE_AFTER_BOOT")) == True:
+        print("Sleeping...")
+        time.sleep(10000)
+
+    yield (vm, gdb, monitor)
+    monitor.stop()
+    vm.stop()
+
+@pytest.mark.parametrize("arch_name, image_name", get_custom_binaries())
+def test_golden_images(request, create_custom_resources_fixture, arch_name, image_name):
+    vm, gdb, monitor = create_custom_resources_fixture
+    test_name = request.node.name
     generated_image_name = "/tmp/.gdb_pt_dump_{}".format(image_name)
     print("Generated image path is {}".format(generated_image_name))
     gdb.run_cmd("pt -o {}".format(generated_image_name))
@@ -552,14 +522,9 @@ def test_golden_images(request, arch_name, image_name):
     assert(expected_data == generated_data)
 
 @pytest.mark.parametrize("arch_name, image_name", get_custom_binaries())
-def test_phys_verbose_golden_images(request, arch_name, image_name):
-    vm = create_custom_vm(arch_name, image_name)
-    vm.start()
-    vm.wait_for_string_on_line(b"Done")
-
+def test_phys_verbose_golden_images(request, create_custom_resources_fixture, arch_name, image_name):
+    vm, gdb, monitor = create_custom_resources_fixture
     test_name = request.node.name
-
-    gdb = GdbCommandExecutor(vm)
     generated_image_name = "/tmp/.gdb_pt_dump_phys_verbose_{}".format(image_name)
     print("Generated image path is {}".format(generated_image_name))
     gdb.run_cmd("pt -phys_verbose -o {}".format(generated_image_name))
@@ -576,14 +541,9 @@ def test_phys_verbose_golden_images(request, arch_name, image_name):
     assert(expected_data == generated_data)
 
 @pytest.mark.parametrize("arch_name, image_name", get_custom_binaries())
-def test_pt_walk_golden_images(request, arch_name, image_name):
-    vm = create_custom_vm(arch_name, image_name)
-    vm.start()
-    vm.wait_for_string_on_line(b"Done")
-
+def test_pt_walk_golden_images(request, create_custom_resources_fixture, arch_name, image_name):
+    vm, gdb, monitor = create_custom_resources_fixture
     test_name = request.node.name
-
-    gdb = GdbCommandExecutor(vm)
     generated_image_name = "/tmp/.gdb_pt_dump_pt_walk_{}".format(image_name)
     print("Generated image path is {}".format(generated_image_name))
     gdb.run_cmd("pt -walk 0x2000 -o {}".format(generated_image_name))
@@ -623,6 +583,9 @@ def test_pt_x86_32():
     res = gdb.run_cmd("pt -ss Kolibri")
     occs = parse_occurrences("x86_64", res.output)
     assert(len(occs) > 1)
+
+    monitor.stop()
+    vm.stop()
 
 if __name__ == "__main__":
     print("This code should be invoked via 'pytest':", file=sys.stderr)

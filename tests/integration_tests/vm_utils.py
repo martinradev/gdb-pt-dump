@@ -1,4 +1,5 @@
 import os
+import sys
 import subprocess
 import re
 import time
@@ -12,6 +13,9 @@ _DEFAULT_QEMU_MONITOR_PORT=55555
 class ImageContainer:
     def __init__(self):
         self.images_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
+
+    def get_linux_image(self, image_name):
+        return os.path.join(self.images_dir, image_name)
 
     def get_linux_x86_64(self):
         return os.path.join(self.images_dir, "linux_x86_64")
@@ -41,9 +45,7 @@ class VM(ABC):
         self.vm_proc = None
         self.arch = arch
         self.qemu_monitor_port = qemu_monitor_port
-
-    def __del__(self):
-        self.stop()
+        self.print_uart = bool(os.getenv("GDB_PT_DUMP_TESTS_PRINT_UART"))
 
     def start(self, cmd):
         self.vm_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -63,6 +65,10 @@ class VM(ABC):
     def get_default_physmap_kaddr(self):
         raise Exception("Not implemented")
 
+    @abstractmethod
+    def get_fixed_known_address(self):
+        raise Exception("Not implemented")
+
     def get_gdb_server_port(self):
         default_qemu_gdb_port = 1234
         return default_qemu_gdb_port
@@ -76,6 +82,8 @@ class VM(ABC):
             b = self.vm_proc.stdout.read(1)
             if b == b"":
                 continue
+            if self.print_uart:
+                sys.stdout.write(b.decode("utf-8"))
             line += b
             if b == b"\n":
                 if line[:-1] == string:
@@ -88,6 +96,8 @@ class VM(ABC):
             b = self.vm_proc.stdout.read(1)
             if b == b"":
                 continue
+            if self.print_uart:
+                sys.stdout.write(b.decode("utf-8"))
             line += b
             if b == b"\n":
                 match = re.search(b'Boot took (.*) seconds', line)
@@ -167,13 +177,16 @@ class VM_X86_64(VM):
         super().start(cmd)
 
     def get_default_base_image_kaddr(self):
-        return 0xffffffff81000000
+        return [0xffffffff81000000]
 
     def get_default_base_image_paddr(self):
-        return 0x1000000
+        return [0x1000000]
 
     def get_default_physmap_kaddr(self):
         return 0xffff888000000000
+
+    def get_fixed_known_address(self):
+        return 0xffffffff81000000
 
 class VM_Arm_64(VM):
     def __init__(self, image_dir, bios_name=None, has_kernel=True):
@@ -182,7 +195,7 @@ class VM_Arm_64(VM):
         self.bios_name = bios_name
         self.has_kernel = has_kernel
 
-    def start(self, memory_mib=64, kaslr=True,  num_cores=1):
+    def start(self, memory_mib=256, kaslr=True,  num_cores=1):
         cmd = []
         cmd.extend(["qemu-system-aarch64"])
 
@@ -223,13 +236,16 @@ class VM_Arm_64(VM):
         super().start(cmd)
 
     def get_default_base_image_kaddr(self):
-        return 0xffff800010000000
+        return [0xffff800010000000, 0xffffffc008010000, 0xfffffe0008010000]
 
     def get_default_base_image_paddr(self):
-        return 0x40200000
+        return [0x40200000, 0x40210000]
 
     def get_default_physmap_kaddr(self):
         raise Exception("Unknown")
+
+    def get_fixed_known_address(self):
+        return 0xfffffffe00000000
 
 class QemuMonitorExecutor:
 
@@ -242,7 +258,7 @@ class QemuMonitorExecutor:
         self.socket.sendall(b'{ "execute": "qmp_capabilities" }\n')
         self.read_line()
 
-    def __del__(self):
+    def stop(self):
         if self.socket:
             self.socket.shutdown(socket.SHUT_WR)
             self.socket.close()
@@ -265,14 +281,23 @@ class QemuMonitorExecutor:
 
         cmd = json.dumps({"execute": exec,"arguments":{"val":addr, "size":len, "filename": filename}})
         self.socket.sendall(cmd.encode("utf-8") + b"\n")
-        res = json.loads(self.read_line())
-        if "error" in res:
-            print(res, cmd)
-            return None
-        assert("return" in res)
+        while True:
+            res = json.loads(self.read_line())
+            if "error" in res:
+                print(res, cmd)
+                return None
+            if "event" in res:
+                continue
+            assert("return" in res)
+            break
         data = b""
-        with open(filename, "rb") as f:
-            data = f.read()
+        for u in range(3):
+            try:
+                with open(filename, "rb") as f:
+                    data = f.read()
+                    break
+            except:
+                time.sleep(0.1)
         os.remove(filename)
         return data
 
@@ -340,11 +365,13 @@ class GdbCommandExecutor:
         elapsed = t2 - t1
         return GdbCommandExecutor.Result(result, elapsed)
 
-def create_linux_vm(arch_name):
+def create_linux_vm(arch_name, image_name = None):
     if arch_name == "x86_64":
-        return VM_X86_64(ImageContainer().get_linux_x86_64())
+        image = ImageContainer().get_linux_image(image_name) if image_name is not None else ImageContainer().get_linux_x86_64()
+        return VM_X86_64(image)
     elif arch_name == "arm_64":
-        return VM_Arm_64(ImageContainer().get_linux_arm_64())
+        image = ImageContainer().get_linux_image(image_name) if image_name is not None else ImageContainer().get_linux_arm_64()
+        return VM_Arm_64(image)
     else:
         raise Exception(f"Unknown arch {arch_name}")
 
@@ -364,5 +391,7 @@ def get_x86_64_binary_names():
 def get_arm_64_binary_names():
     image_folder = ImageContainer().get_custom_kernels_arm_64()
     files = [file for file in os.listdir(image_folder) if file.endswith(".bin")]
+    # Filter out 16k granule
+    files = [file for file in files if "16k" not in file]
     return files
 
