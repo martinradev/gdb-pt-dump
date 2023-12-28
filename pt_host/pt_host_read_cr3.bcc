@@ -1,0 +1,33 @@
+
+#include <linux/sched.h>
+#include <linux/mm.h>
+
+BPF_ARRAY(out_cr3, u64, 1);
+
+int read_cr3(struct pt_regs *ctx) {
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    if (task == NULL) {
+        return 1;
+    }
+    if (task->pid != $PID) {
+        return 1;
+    }
+    struct mm_struct *mm = task->mm;
+    if (!mm) {
+        return 1;
+    }
+    unsigned long cr3 = (unsigned long)mm->pgd;
+    unsigned long page_offset_base =0;
+    if (bpf_probe_read(&page_offset_base, 8, (void *)$PAGE_OFFSET_BASE) < 0) {
+        return 1;
+    }
+    unsigned long cr3_phys_address = cr3 - page_offset_base;
+    u32 index = 0;
+    u64 *ptr = out_cr3.lookup(&index);
+    if (!ptr) {
+        return 1;
+    }
+    *ptr = cr3_phys_address;
+    bpf_trace_printk("Done\n");
+    return 0;
+}

@@ -1,7 +1,8 @@
 from pt.pt_common import *
-import pt.pt_aarch64_definitions as a64_def
+from pt.pt_aarch64_definitions import *
 from pt.pt_arch_backend import PTArchBackend
 from pt.pt_constants import *
+from pt.machine import *
 
 import math
 
@@ -66,10 +67,10 @@ class Aarch64_Block():
         s = f"{varying_str}" + delim + uspace_str + delim + kspace_str
         return s
 
-    def read_memory(self, phys_mem):
+    def read_memory(self, machine):
         memory = b""
         for phys_range_start, phys_range_size in zip(self.phys, self.sizes):
-            memory += phys_mem.read(phys_range_start, phys_range_size)
+            memory += machine.read_physical_memory(phys_range_start, phys_range_size)
         return memory
 
     def pwndbg_is_writeable(self):
@@ -89,12 +90,16 @@ class Aarch64_Table():
 def aarch64_semantically_similar(p1: Aarch64_Block, p2: Aarch64_Block) -> bool:
     return p1.xn == p2.xn and p1.pxn == p2.pxn and p1.permissions == p2.permissions
 
-def print_stats():
-    print(a64_def.pt_tcr.check())
-
 class PT_Aarch64_Backend(PTArchBackend):
-    def __init__(self, phys_mem):
-        self.phys_mem = phys_mem
+    def __init__(self, machine):
+        self.machine = machine
+        self.init_registers()
+
+    def init_registers(self):
+        self.pt_tcr = PT_TCR(self.machine)
+
+    def print_stats(self):
+        print(self.pt_tcr.check())
 
     def get_arch(self):
         return "aarch64"
@@ -129,7 +134,7 @@ class PT_Aarch64_Backend(PTArchBackend):
             page_pa = table_addr & ~0xfff
             entry_index = extract(va, r[0], r[1])
             entry_page_pa = page_pa + entry_index * entry_size
-            entry_value = int.from_bytes(self.phys_mem.read(entry_page_pa, entry_size), 'little')
+            entry_value = int.from_bytes(self.machine.read_physical_memory(entry_page_pa, entry_size), 'little')
             entry_value_pa = extract_no_shift(entry_value, 0, 47)
             entry_value_pa_no_meta = extract_no_shift(entry_value, 12, 47)
             meta_bits = extract_no_shift(entry_value, 0, 11)
@@ -210,14 +215,14 @@ class PT_Aarch64_Backend(PTArchBackend):
         raise exception(f"Uknown filter {filter_name}")
 
     def get_ttbr0_el1(self):
-        return int(gdb.parse_and_eval("$TTBR0_EL1").cast(gdb.lookup_type("unsigned long")))
+        return self.machine.read_register("$TTBR0_EL1")
 
     def get_ttbr1_el1(self):
-        return int(gdb.parse_and_eval("$TTBR1_EL1").cast(gdb.lookup_type("unsigned long")))
+        return self.machine.read_register("$TTBR1_EL1")
 
     def determine_ttbr0_granule_size(self):
         tb0_granule_size = None
-        tg0 = a64_def.pt_tcr.TG0
+        tg0 = self.pt_tcr.TG0
         if tg0 == 0b00:
             tb0_granule_size = PT_AARCH64_4KB_PAGE
         elif tg0 == 0b01:
@@ -231,7 +236,7 @@ class PT_Aarch64_Backend(PTArchBackend):
 
     def determine_ttbr1_granule_size(self):
         tb1_granule_size = None
-        tg1 = a64_def.pt_tcr.TG1
+        tg1 = self.pt_tcr.TG1
         if tg1 == 0b10:
             tb1_granule_size = PT_AARCH64_4KB_PAGE
         elif tg1 == 0b11:
@@ -244,10 +249,10 @@ class PT_Aarch64_Backend(PTArchBackend):
         return tb1_granule_size
 
     def determine_ttbr0_address_space_limit(self):
-        return 64 - a64_def.pt_tcr.T0SZ
+        return 64 - self.pt_tcr.T0SZ
 
     def determine_ttbr1_address_space_limit(self):
-        return 64 - a64_def.pt_tcr.T1SZ
+        return 64 - self.pt_tcr.T1SZ
 
     def aarch64_parse_entries(self, tbl, level_range, as_size, granule, is_last_level):
         # lvl starts from one to be in sync with the armv7 docs
@@ -255,8 +260,8 @@ class PT_Aarch64_Backend(PTArchBackend):
         start_bit = int(math.log2(granule))
 
         try:
-            entries = split_range_into_int_values(read_arbitrary_page(self.phys_mem, tbl.pa, granule), 8)
-        except:
+            entries = split_range_into_int_values(read_arbitrary_page(self.machine, tbl.pa, granule), 8)
+        except Exception:
             pass
 
         tables = []
@@ -366,7 +371,6 @@ class PT_Aarch64_Backend(PTArchBackend):
     def print_kaslr_information(self, table, should_print = True, phys_verbose = False):
         potential_base_filter = lambda p: is_kernel_executable(p)
         tmp = list(filter(potential_base_filter, table))
-        th = gdb.selected_inferior()
         found_page = None
         kaslr_addresses = []
         stext_phys_base_addr = 0x40210000
@@ -397,8 +401,4 @@ class PT_Aarch64_Backend(PTArchBackend):
         print(bcolors.BLUE + varying_str + " User space " + " | Kernel space " + bcolors.ENDC)
         for block in table:
             print(block.to_string(phys_verbose))
-
-    def print_stats(self):
-        print_stats()
-        return
 

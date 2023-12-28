@@ -1,8 +1,8 @@
 from pt.pt_register import *
 
 class PT_CR0(PT_Register):
-    def __init__(self):
-        super(PT_CR0, self).__init__("cr0", "Control Register 0")
+    def __init__(self, machine):
+        super(PT_CR0, self).__init__(machine, "cr0", "Control Register 0")
         self.add_range("PE (Protected Mode Enable)", 0, 0, PT_Decipher_Meaning_Match({0: "Protected mode", 1: "Real mode"}))
         self.add_range("MP (Monitor co-processor)", 1, 1, PT_Decipher_Meaning_Passthrough)
         self.add_range("EM (Emulation)", 2, 2, PT_Decipher_Meaning_Match({1: "No x87 FPU present", 0: "x87 FPU present"}))
@@ -16,8 +16,8 @@ class PT_CR0(PT_Register):
         self.add_range("PG (Paging)", 31, 31, PT_Decipher_Meaning_Passthrough)
 
 class PT_CR4(PT_Register):
-    def __init__(self):
-        super(PT_CR4, self).__init__("cr4", "Control Register 4")
+    def __init__(self, machine):
+        super(PT_CR4, self).__init__(machine, "cr4", "Control Register 4")
         self.add_range("VME (Virtual 8086 Mode Extensions)", 0, 0, PT_Decipher_Meaning_Passthrough)
         self.add_range("PVI (Protected-model virtual interrupts)", 1, 1, PT_Decipher_Meaning_Passthrough)
         self.add_range("TSD (Time Stamp Disable)", 2, 2, PT_Decipher_Meaning_Passthrough)
@@ -39,7 +39,4 @@ class PT_CR4(PT_Register):
         self.add_range("SMEP", 20, 20, PT_Decipher_Meaning_Passthrough)
         self.add_range("SMAP", 21, 21, PT_Decipher_Meaning_Passthrough)
         self.add_range("PKE", 22, 22, PT_Decipher_Meaning_Passthrough)
-
-pt_cr0 = PT_CR0()
-pt_cr4 = PT_CR4()
 

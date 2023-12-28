@@ -1,4 +1,3 @@
-import gdb
 from collections import namedtuple
 import copy
 
@@ -26,17 +25,17 @@ def split_range_into_int_values(memory, value_size):
         values.append(int.from_bytes(memory[u:u+value_size], 'little'))
     return values
 
-def read_arbitrary_page(phys_memory, addr, page_size):
-    return phys_memory.read(addr, page_size)
+def read_arbitrary_page(machine, addr, page_size):
+    return machine.read_physical_memory(addr, page_size)
 
-def read_page(phys_memory, addr):
-    return read_arbitrary_page(phys_memory, addr, 4096)
+def read_page(machine, addr):
+    return read_arbitrary_page(machine, addr, 4096)
 
-def read_16k_page(phys_memory, addr):
-    return read_arbitrary_page(phys_memory, addr, 16 * 1024)
+def read_16k_page(machine, addr):
+    return read_arbitrary_page(machine, addr, 16 * 1024)
 
-def read_64k_page(phys_memory, addr):
-    return read_arbitrary_page(phys_memory, addr, 64 * 1024)
+def read_64k_page(machine, addr):
+    return read_arbitrary_page(machine, addr, 64 * 1024)
 
 def make_canonical(va, top_bit_pos = 48):
     shift = top_bit_pos - 1
@@ -95,10 +94,10 @@ class Page():
             self.sizes[-1] = self.sizes[-1] - delta
         self.page_size = min(self.page_size, cut_addr - self.va)
 
-    def read_memory(self, phys_mem):
+    def read_memory(self, machine):
         memory = b""
         for phys_range_start, phys_range_size in zip(self.phys, self.sizes):
-            memory += phys_mem.read(phys_range_start, phys_range_size)
+            memory += machine.read_physical_memory(phys_range_start, phys_range_size)
         return memory
 
     def pwndbg_is_writeable(self):
@@ -193,14 +192,19 @@ def create_compound_filter(filters):
         return res
     return apply_filters
 
-def search_memory(phys_mem, page_ranges, to_search, to_search_num, aligned_to, aligned_offset):
-    th = gdb.selected_inferior()
+def search_memory(machine, page_ranges, to_search, to_search_num, aligned_to, aligned_offset):
     done_searching = False
     for range in page_ranges:
         if done_searching:
             break
+
+        data = None
         try:
-            data = range.read_memory(phys_mem)
+            data = range.read_memory(machine)
+        except OSError:
+            pass
+
+        if data is not None:
             idx = 0
             while True:
                 idx = data.find(to_search, idx)
@@ -214,8 +218,6 @@ def search_memory(phys_mem, page_ranges, to_search, to_search_num, aligned_to, a
                     idx = idx + 1
                 else:
                     break
-        except (gdb.MemoryError, OSError):
-            pass
     return None
 
 def find_aliases(virtual_page_ranges, phys_verobse):

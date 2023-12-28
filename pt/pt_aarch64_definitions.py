@@ -4,8 +4,8 @@ from pt.pt_register import *
 # I hope this doesn't break any license. Please don't sue :(
 
 class PT_TCR(PT_Register):
-    def __init__(self):
-        super(PT_TCR, self).__init__("TCR_EL1", "Translation Control Register EL1 (TCR EL1)")
+    def __init__(self, machine):
+        super(PT_TCR, self).__init__(machine, "TCR_EL1", "Translation Control Register EL1 (TCR EL1)")
         self.add_range("T0SZ", 0, 5, lambda x: f"{x} bits are truncated. TTBR0_EL1 addresses {64 - x} bits.")
         self.add_range("EPD0", 7, 7, PT_Decipher_Meaning_Match( \
             {0: "Perform translation table walk using TTBR0_EL1", \
@@ -57,4 +57,3 @@ class PT_TCR(PT_Register):
             {0: "Top Byte used in the address calculation.",
              1: "Top Byte ignored in the address calculation."}))
  
-pt_tcr = PT_TCR()
