@@ -11,7 +11,7 @@ from pt.pt_common import *
 
 class PageTableDump():
 
-    def __init__(self, machine_backend, arch_backend):
+    def __init__(self, machine_backend, arch_backend, needs_pid = False):
         self.machine_backend = machine_backend
         self.arch_backend = arch_backend
 
@@ -37,6 +37,9 @@ class PageTableDump():
         self.parser.add_argument("-o", nargs=1)
         self.parser.add_argument("-find_alias", action="store_true")
         self.parser.add_argument("-force_traverse_all", action="store_true")
+
+        if needs_pid:
+            self.parser.add_argument("-pid", type=int, required = True)
 
         if self.arch_backend.get_arch() == "x86_64" or self.arch_backend.get_arch() == "x86_32":
             self.parser.add_argument("-cr3", nargs=1)

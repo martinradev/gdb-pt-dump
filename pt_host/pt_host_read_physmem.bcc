@@ -1,0 +1,75 @@
+#include <linux/sched.h>
+#include <linux/mm.h>
+
+#define MAX_LEN ( 4096 )
+#define MAX_ELEMENTS ( MAX_LEN / 8 )
+
+
+struct Page {
+    u8 data[4096];
+};
+
+BPF_ARRAY(out_page_memory, u64, MAX_ELEMENTS);
+BPF_ARRAY(in_phys_addr, u64, 1);
+BPF_ARRAY(in_phys_len, u32, 1);
+BPF_ARRAY(in_pid, u32, 1);
+BPF_ARRAY(out_block, struct Page, 1);
+
+int syscall__madvise(struct pt_regs *regs, unsigned long start, size_t advise_len, int behavior) {
+    unsigned int zero = 0;
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    if (task == NULL) {
+        return 1;
+    }
+    u32 *pid_ptr = in_pid.lookup(&zero);
+    if (!pid_ptr) {
+        return 1;
+    }
+
+    unsigned int task_pid = 0;
+    if (bpf_probe_read(&task_pid, sizeof(task_pid), &(task->pid)) < 0) {
+        return 1;
+    }
+    if (task_pid != *pid_ptr) {
+        return 1;
+    }
+
+    if (start != 0x1337 || advise_len != 0x1337) {
+        return 1;
+    }
+
+    unsigned long page_offset_base = 0;
+    if (bpf_probe_read(&page_offset_base, 8, (void *)$PAGE_OFFSET_BASE) < 0) {
+        return 1;
+    }
+    u32 *len_ptr = in_phys_len.lookup(&zero);
+    if (!len_ptr) {
+        return 1;
+    }
+    const u32 len = *len_ptr;
+    if (len > MAX_LEN)
+    {
+        return 1;
+    }
+    u64 *phys_addr_ptr = in_phys_addr.lookup(&zero);
+    if (!phys_addr_ptr) {
+        return 1;
+    }
+
+    struct Page *block_ptr = out_block.lookup(&zero);
+    if (!block_ptr) {
+        return 1;
+    }
+
+    u8 *phys_addr = 0x0;
+    phys_addr += *phys_addr_ptr;
+    phys_addr += page_offset_base;
+    if (bpf_probe_read(block_ptr, len, (const void *)phys_addr) != 0) {
+        bpf_trace_printk("Failed to read physical memory\n");
+        return 1;
+    }
+
+    bpf_trace_printk("Done\n");
+    return 0;
+}
+
