@@ -1,7 +1,12 @@
 # gdb-pt-dump
 
-`gdb-pt-dump` is a gdb script to examine the address space of a QEMU-based virtual machine.
-Although this is also possible via the `monitor` and `pwndbg` interfaces, working with them is cumbersome, slow and sometimes they produce erroneous results.
+`gdb-pt-dump` is a gdb script to enhance debugging of a QEMU-based virtual machine.
+
+The repository also includes `pt_host` which extends the tool for examining the page tables of a Linux process.
+
+## Supported architectures
+
+Supported architectures: `x86-64`, `x86-32`, `aarch64`, `riscv64`.
 
 ## Features
 
@@ -15,6 +20,7 @@ Although this is also possible via the `monitor` and `pwndbg` interfaces, workin
 * Filter-out search results by address alignment. Useful for filtering-out SLAB allocations.
 * Try to determine KASLR information by examining the address space.
 * Find virtual memory aliases.
+* Dump host page tables via `pt_host.py`
 
 ## How to use
 
@@ -43,7 +49,3 @@ For details, just do `help pt` in gdb.
 Old QEMU versions seem to not provide access to privileged registers like cr3.
 Thus, the page table address would need to be retrieved in some other way.
 
-## Supported architectures
-
-Supported architectures: `x86-64`, `aarch64`, `riscv64`.
-Planned: `x86-32`.
