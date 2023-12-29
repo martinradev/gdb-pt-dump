@@ -7,6 +7,7 @@ license = "MIT"
 readme = "README.md"
 packages = [
     { include = "pt" },
+    { include = "pt_gdb" },
 ]
 
 [tool.poetry.dependencies]

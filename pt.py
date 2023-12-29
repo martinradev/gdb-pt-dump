@@ -5,6 +5,6 @@ import os
 dirname = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(1, dirname)
 
-from pt import PageTableDump
+from pt_gdb import PageTableDumpGdbFrontend
 
-PageTableDump()
+PageTableDumpGdbFrontend()
