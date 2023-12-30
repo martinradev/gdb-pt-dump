@@ -5,6 +5,7 @@ import copy
 import re
 import pytest
 import sys
+import filecmp
 
 from vm_utils import *
 from pt_utils import *
@@ -586,6 +587,18 @@ def test_pt_x86_32():
 
     monitor.stop()
     vm.stop()
+
+@pytest.mark.parametrize("arch_name, linux_image", get_all_images())
+def test_pt_read_virt_memory(create_resources_fixture_nokaslr, arch_name, linux_image):
+    vm, gdb, monitor = create_resources_fixture_nokaslr
+
+    res = gdb.run_cmd("pt")
+    ranges = parse_va_ranges(arch_name, res.output)
+
+    for r in ranges[:10]:
+        gdb.run_cmd(f"pt -read_virt {hex(r.va_start)} {r.length} -o /tmp/virt_dump.bin")
+        gdb.run_cmd(f"dump binary memory /tmp/qemu_virt_dump.bin {hex(r.va_start)} {hex(r.va_start + r.length)}")
+        assert(filecmp.cmp("/tmp/virt_dump.bin", "/tmp/qemu_virt_dump.bin"))
 
 if __name__ == "__main__":
     print("This code should be invoked via 'pytest':", file=sys.stderr)

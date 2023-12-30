@@ -37,6 +37,8 @@ class PageTableDump():
         self.parser.add_argument("-o", nargs=1)
         self.parser.add_argument("-find_alias", action="store_true")
         self.parser.add_argument("-force_traverse_all", action="store_true")
+        self.parser.add_argument("-read_phys", nargs=2, help="hex physical address and length")
+        self.parser.add_argument("-read_virt", nargs=2, help="hex virtual address and length")
 
         if needs_pid:
             self.parser.add_argument("-pid", type=int, required = True)
@@ -80,6 +82,36 @@ class PageTableDump():
                 sys.stdout.close()
                 sys.stdout = saved_stdout
 
+    def read_virt_memory(self, virt_ranges, virt_addr, len):
+        phys_blocks = []
+        for r in virt_ranges:
+            if r.va + r.page_size <= virt_addr:
+                continue
+            if r.va >= virt_addr + len:
+                break
+
+            acc = 0
+            for (phys_addr, phys_extent) in zip(r.phys, r.sizes):
+                if r.va + acc >= virt_addr + len:
+                    break
+                acc += phys_extent
+                if r.va + acc < virt_addr:
+                    continue
+                start_delta = max(virt_addr - (acc + r.va - phys_extent), 0)
+                phys_addr_fixed = phys_addr + start_delta
+                phys_extent_fixed = min(virt_addr + len + phys_extent - (r.va + acc), phys_extent) - start_delta
+                phys_blocks.append((phys_addr_fixed, phys_extent_fixed))
+
+        remaining = len
+        data = b""
+        for (pa, extent) in phys_blocks:
+            to_read = min(remaining, extent)
+            data += self.machine_backend.read_physical_memory(pa, to_read)
+            remaining -= to_read
+            if remaining == 0:
+                break
+        return data
+
     def handle_command(self, args):
         if args.list:
             self.print_cache()
@@ -113,6 +145,9 @@ class PageTableDump():
             requires_page_table_parsing = False
 
         if args.walk:
+            requires_page_table_parsing = False
+
+        if args.read_phys:
             requires_page_table_parsing = False
 
         page_ranges = None
@@ -161,6 +196,15 @@ class PageTableDump():
             self.arch_backend.print_stats()
         elif args.find_alias:
             find_aliases(page_ranges, args.phys_verbose)
+        elif args.read_phys:
+            phys_addr = int(args.read_phys[0], 0)
+            phys_len = int(args.read_phys[1], 0)
+            sys.stdout.buffer.write(self.machine_backend.read_physical_memory(phys_addr, phys_len))
+        elif args.read_virt:
+            virt_addr = int(args.read_virt[0], 0)
+            virt_len = int(args.read_virt[1], 0)
+            data = self.read_virt_memory(page_ranges, virt_addr, virt_len)
+            sys.stdout.buffer.write(data)
         else:
             self.arch_backend.print_table(page_ranges_filtered, phys_verbose=args.phys_verbose)
 
