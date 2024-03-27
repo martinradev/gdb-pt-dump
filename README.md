@@ -2,7 +2,7 @@
 
 `gdb-pt-dump` is a gdb script to enhance debugging of a QEMU-based virtual machine.
 
-The repository also includes `pt_host` which extends the tool for examining the page tables of a Linux process.
+The repository also includes `pt_host` which is a BPF program that allows for examining the page tables of a Linux process.
 
 ## Supported architectures
 
