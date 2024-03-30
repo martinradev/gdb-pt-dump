@@ -124,7 +124,7 @@ class VM_X86_64(VM):
         self.image_dir = image_dir
         self.fda_name = fda_name
 
-    def start(self, memory_mib=64, kvm=False, smep=True, smap=True, kaslr=True, svm=False, num_cores=1):
+    def start(self, memory_mib=256, kvm=False, smep=True, smap=True, kaslr=True, svm=False, la57=False, num_cores=1):
         cmd = []
         cmd.extend(["qemu-system-x86_64"])
 
@@ -132,7 +132,10 @@ class VM_X86_64(VM):
         if kvm:
             cpu_options.append("kvm64")
         else:
-            cpu_options.append("qemu64")
+            if la57:
+                cpu_options.append("qemu64,+la57")
+            else:
+                cpu_options.append("qemu64")
 
         if smep:
             cpu_options.append("+smep")
