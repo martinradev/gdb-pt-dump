@@ -140,15 +140,15 @@ class PT_x86_Common_Backend():
             first_bytes = self.machine.read_physical_memory(page.phys[0], 32)
             page_ranges_subset = filter(lambda page: not page.x and page.s and page.va % PT_SIZE_2MIB == 0, table)
             search_res_iter = search_memory(self.machine, page_ranges_subset, first_bytes, 1, 1, 0)
-            if search_res_iter == None:
-                print("Phys map was not found")
-            else:
+            try:
                 search_res = next(search_res_iter)
                 stdout_output += "Found phys map base:\n"
                 phys_map_virt_base = search_res[0] - found_page.phys[0]
                 phys_map_range = next(range for range in table if range.va >= phys_map_virt_base and phys_map_virt_base < range.va + range.page_size)
                 stdout_output += "\tVirt: " + hex(phys_map_virt_base) + " in " + phys_map_range.to_string(phys_verbose) + "\n"
                 kaslr_addresses.append(phys_map_virt_base)
+            except StopIteration:
+                print("Phys map was not found")
         else:
             stdout_output = "Failed to find KASLR info"
         if should_print:
