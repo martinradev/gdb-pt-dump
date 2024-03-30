@@ -86,8 +86,12 @@ class PT_x86_Common_Backend():
         top_va = None
         stages = None
         if self.is_long_mode_enabled():
-            stages = ["PML4", "PDP", "PD", "PT"]
-            top_va_bit = 47
+            if self.has_level_5_paging_enabled():
+                stages = ["PML5", "PML4", "PDP", "PD", "PT"]
+                top_va_bit = 56
+            else:
+                stages = ["PML4", "PDP", "PD", "PT"]
+                top_va_bit = 47
         else:
             stages = ["PD", "PT"]
             top_va_bit = 31
@@ -160,18 +164,44 @@ class PT_x86_Common_Backend():
     def has_paging_enabled(self):
         return (self.machine.read_register("$cr0") >> 31) & 0x1 == 0x1
 
-    def parse_pml4(self, addr, force_traverse_all):
+    def has_level_5_paging_enabled(self):
+        return (self.machine.read_register("$cr4") >> 12) & 0x1 == 0x1
+
+    def parse_pml5(self, addr, force_traverse_all):
         entries = []
         entry_size = 8
         try:
             values = split_range_into_int_values(read_page(self.machine, addr), entry_size)
         except:
             return entries
+        pml5_cache = {}
+        for u, value in enumerate(values):
+            if (value & 0x1) != 0: # Page must be present
+                if force_traverse_all or value not in pml5_cache:
+                    entry = PML5_Entry(value, u)
+                    entries.append(entry)
+                    pml5_cache[value] = entry
+        return entries
+
+    def parse_pml5es(self, pml5es, force_traverse_all, entry_size):
+        entries = []
+        for pml5e in pml5es:
+            pdpe = self.parse_pml4(pml5e, force_traverse_all)
+            entries.extend(pdpe)
+        return entries
+
+    def parse_pml4(self, pml5e, force_traverse_all):
+        entries = []
+        entry_size = 8
+        try:
+            values = split_range_into_int_values(read_page(self.machine, pml5e.pml4), entry_size)
+        except:
+            return entries
         pml4_cache = {}
         for u, value in enumerate(values):
             if (value & 0x1) != 0: # Page must be present
                 if force_traverse_all or value not in pml4_cache:
-                    entry = PML4_Entry(value, u)
+                    entry = PML4_Entry(value, pml5e.virt_part, u)
                     entries.append(entry)
                     pml4_cache[value] = entry
         return entries
@@ -320,7 +350,13 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
         elif long_mode_enabled:
             pde_shift = self.get_pde_shift()
             entry_size = self.get_entry_size()
-            pml4es = self.parse_pml4(pt_addr, args.force_traverse_all)
+            pml4es = []
+            if self.has_level_5_paging_enabled():
+                pml5es = self.parse_pml5(pt_addr, args.force_traverse_all)
+                pml4es = self.parse_pml5es(pml5es, args.force_traverse_all, entry_size)
+            else:
+                pml4es = self.parse_pml4(PML5_Entry(pt_addr, 0), args.force_traverse_all)
+
             pdpes = self.parse_pml4es(pml4es, args.force_traverse_all, entry_size)
             pdes, large_pages = self.parse_pdpes(pdpes, args.force_traverse_all, entry_size, pde_shift)
             ptes, big_pages = self.parse_pdes(pdes)
