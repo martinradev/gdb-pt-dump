@@ -308,8 +308,8 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
         if self.is_long_mode_enabled():
             return 21
         else:
-            pse = retrieve_pse()
-            pae = retrieve_pae()
+            pse = self.retrieve_pse()
+            pae = self.retrieve_pae()
             if pse and pae:
                 # PSE is ignored when PAE is available.
                 return 21
@@ -365,7 +365,7 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
                 small_pages.append(create_page_from_pte(pte))
             page_ranges = optimize(large_pages, big_pages, small_pages, rwxs_semantically_similar, requires_physical_contiguity)
         else:
-            pae = retrieve_pae()
+            pae = self.retrieve_pae()
             pde_shift = self.get_pde_shift()
             entry_size = self.get_entry_size()
 
@@ -377,8 +377,8 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
             else:
                 pdpes = [PDP_Entry(pt_addr, 0, 0)]
 
-            pdes, large_pages = parse_pdpes(pdpes, args.force_traverse_all, entry_size, pde_shift)
-            ptes, big_pages = parse_pdes(pdes, entry_size)
+            pdes, large_pages = self.parse_pdpes(pdpes, args.force_traverse_all, entry_size, pde_shift)
+            ptes, big_pages = self.parse_pdes(pdes, entry_size)
             small_pages = []
             for pte in ptes:
                 small_pages.append(create_page_from_pte(pte))
