@@ -1,7 +1,33 @@
 from pt.pt_common import *
 
-class PML4_Entry():
+class PML5_Entry():
     def __init__(self, value, index):
+        self.present = is_present(value)
+        self.writeable = is_writeable(value)
+        self.supervisor = is_supervisor(value)
+        self.writeback = is_writeback(value)
+        self.cacheable = is_cacheable(value)
+        self.accessed = is_accessed(value)
+        self.available = is_available(value)
+        self.nx = is_nx(value)
+        self.pml4 = get_pml4_base(value)
+        self.raw = value
+        self.virt_part = make_canonical(index << 48, 57)
+
+    def __str__(self):
+        res = (f"{hex(self.pdp)}: "
+               f"P:{int(self.present)} "
+               f"W:{int(self.writeable)} "
+               f"S:{int(self.supervisor)} "
+               f"WB:{int(self.writeback)} "
+               f"UC:{int(not self.cacheable)} "
+               f"A:{int(self.accessed)} "
+               f"AVL:{int(self.available)} "
+               f"NX:{int(self.nx)}")
+        return res
+
+class PML4_Entry():
+    def __init__(self, value, parent_va, index):
         self.present = is_present(value)
         self.writeable = is_writeable(value)
         self.supervisor = is_supervisor(value)
@@ -12,7 +38,7 @@ class PML4_Entry():
         self.nx = is_nx(value)
         self.pdp = get_pdp_base(value)
         self.raw = value
-        self.virt_part = (index << 39)
+        self.virt_part = make_canonical((index << 39) | parent_va, 57 if parent_va != 0 else 48)
 
     def __str__(self):
         res = (f"{hex(self.pdp)}: "
@@ -124,7 +150,7 @@ class PT_Entry():
 
 def create_page_from_pte(pte: PT_Entry) -> Page:
     page = Page()
-    page.va = make_canonical(pte.virt)
+    page.va = pte.virt
     page.page_size = 4096
     page.w = pte.writeable
     page.x = not pte.nx
@@ -137,7 +163,7 @@ def create_page_from_pte(pte: PT_Entry) -> Page:
 
 def create_page_from_pde(pde: PD_Entry) -> Page:
     page = Page()
-    page.va = make_canonical(pde.virt_part)
+    page.va = pde.virt_part
     page.page_size = pde.page_size
     page.w = pde.writeable
     page.x = not pde.nx
@@ -150,7 +176,7 @@ def create_page_from_pde(pde: PD_Entry) -> Page:
 
 def create_page_from_pdpe(pdpe: PDP_Entry) -> Page:
     page = Page()
-    page.va = make_canonical(pdpe.virt_part)
+    page.va = pdpe.virt_part
     page.page_size = 1024 * 1024 * 1024
     page.w = pdpe.writeable
     page.x = not pdpe.nx
@@ -189,6 +215,9 @@ def is_nx(addr):
     return (addr & (1<<63)) != 0
 
 def get_pdp_base(addr):
+    return extract_no_shift(addr, 12, 51)
+
+def get_pml4_base(addr):
     return extract_no_shift(addr, 12, 51)
 
 # One gigabyte-large page.

@@ -19,11 +19,14 @@ def get_all_arch():
     return ["x86_64", "arm_64", "riscv"]
 
 def get_all_images():
-    return [("x86_64", "linux_x86_64"), ("arm_64", "linux_arm_64_4k"), ("arm_64", "linux_arm_64_4k_kpti"), ("arm_64", "linux_arm_64_64k"), ("riscv", "linux_riscv")]
+    return [("x86_64", "linux_x86_64"), ("x86_64", "linux_x86_64_la57"), ("arm_64", "linux_arm_64_4k"), ("arm_64", "linux_arm_64_4k_kpti"), ("arm_64", "linux_arm_64_64k"), ("riscv", "linux_riscv")]
 
 def create_resources(arch_name, linux_image, kaslr):
     vm = create_linux_vm(arch_name, linux_image)
-    vm.start(kaslr=kaslr)
+    if "la57" in linux_image:
+        vm.start(kaslr=kaslr, la57=True)
+    else:
+        vm.start(kaslr=kaslr)
     vm.wait_for_shell()
     gdb = GdbCommandExecutor(vm)
     monitor = QemuMonitorExecutor(vm)
@@ -559,6 +562,12 @@ def test_pt_walk_golden_images(request, create_custom_resources_fixture, arch_na
         expected_data = golden_image_file.read()
 
     assert(expected_data == generated_data)
+
+def test_pt_la57():
+    vm = VM_X86_64(ImageContainer().get_linux_x86_64())
+    vm.start()
+
+    time.sleep(100)
 
 def test_pt_x86_32():
     vm = VM_X86_64(ImageContainer().get_kolibri_x86_32(), fda_name = "kolibri.img")
