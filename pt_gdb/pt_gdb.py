@@ -210,7 +210,7 @@ class PageTableDumpGdbFrontend(gdb.Command):
         arch_backend = None
         if "aarch64" in arch:
             arch_backend = PT_Aarch64_Backend(machine_backend)
-        elif "x86" in arch or "x64" in arch:
+        elif "x86" in arch or "x64" in arch or "i386" in arch:
             arch_backend = PT_x86_64_Backend(machine_backend)
         elif "riscv:rv64" in arch:
             arch_backend = PT_RiscV64_Backend(machine_backend)

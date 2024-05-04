@@ -293,9 +293,13 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
         self.pt_cr4 = PT_CR4(self.machine)
 
     def is_long_mode_enabled(self):
-        efer = self.machine.read_register("$efer")
-        long_mode_enabled = bool((efer >> 8) & 0x1)
-        return long_mode_enabled
+        try:
+            efer = self.machine.read_register("$efer")
+            long_mode_enabled = bool((efer >> 8) & 0x1)
+            return long_mode_enabled
+        except:
+            # EFER does not exist for a 32-bit target machine
+            return False
 
     def get_entry_size(self):
         if self.is_long_mode_enabled():
@@ -330,10 +334,6 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
         if self.has_paging_enabled() == False:
             raise Exception("Paging is not enabled")
 
-        # Check if long mode is enabled
-        efer = self.machine.read_register("$efer")
-        long_mode_enabled = bool((efer >> 8) & 0x1)
-
         requires_physical_contiguity = args.phys_verbose
         pt_addr = None
         if args.cr3:
@@ -347,7 +347,7 @@ class PT_x86_64_Backend(PT_x86_Common_Backend, PTArchBackend):
 
         if pt_addr in cache:
             page_ranges = cache[pt_addr]
-        elif long_mode_enabled:
+        elif self.is_long_mode_enabled():
             pde_shift = self.get_pde_shift()
             entry_size = self.get_entry_size()
             pml4es = []
