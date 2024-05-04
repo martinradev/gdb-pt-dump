@@ -597,6 +597,34 @@ def test_pt_x86_32():
     monitor.stop()
     vm.stop()
 
+def test_pt_i386():
+    vm = VM_X86_32(ImageContainer().get_kolibri_x86_32(), fda_name = "kolibri.img")
+    vm.start()
+
+    time.sleep(15)
+
+    gdb = GdbCommandExecutor(vm)
+    res = gdb.run_cmd("pt")
+    ranges = parse_va_ranges("x86_64", res.output)
+    assert(len(ranges) > 0)
+
+    monitor = QemuMonitorExecutor(vm)
+
+    for r in ranges:
+        addr = r.va_start
+        data = monitor.read_virt_memory(addr, 4)
+        assert(len(data) == 4)
+
+    res = gdb.run_cmd(f"pt -walk {hex(ranges[0].va_start)}")
+    assert("Last stage faulted" not in res.output)
+
+    res = gdb.run_cmd("pt -ss Kolibri")
+    occs = parse_occurrences("x86_64", res.output)
+    assert(len(occs) > 1)
+
+    monitor.stop()
+    vm.stop()
+
 @pytest.mark.parametrize("arch_name, linux_image", get_all_images())
 def test_pt_read_virt_memory(create_resources_fixture_nokaslr, arch_name, linux_image):
     vm, gdb, monitor = create_resources_fixture_nokaslr
