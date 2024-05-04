@@ -194,6 +194,58 @@ class VM_X86_64(VM):
     def get_fixed_known_address(self):
         return 0xffffffff81000000
 
+class VM_X86_32(VM):
+    def __init__(self, image_dir, fda_name=None):
+        super().__init__(arch="x86_32", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT)
+        self.image_dir = image_dir
+        self.fda_name = fda_name
+
+    def start(self, memory_mib=256, num_cores=1):
+        cmd = []
+        cmd.extend(["qemu-system-i386"])
+
+        if self.fda_name == None:
+            kernel_image = os.path.join(self.image_dir, "kernel.img")
+            cmd.extend(["-kernel", kernel_image])
+
+            initrd_image = os.path.join(self.image_dir, "initrd.img")
+            cmd.extend(["-initrd", initrd_image])
+
+            boot_string = "console=ttyS0 oops=panic ip=dhcp root=/dev/ram rdinit=/init quiet"
+            if kaslr:
+                boot_string += " kaslr"
+            else:
+                boot_string += " nokaslr"
+
+            cmd.extend(["-append", boot_string])
+        else:
+            # This path is taken for the custom images
+            cmd.extend(["-fda", os.path.join(self.image_dir, self.fda_name)])
+
+        cmd.extend(["-m", str(memory_mib)])
+
+        cmd.extend(["-qmp", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
+
+        cmd.extend(["-nographic", "-snapshot", "-no-reboot"])
+
+        cmd.extend(["-smp", str(num_cores)])
+
+        cmd.extend(["-s"])
+
+        super().start(cmd)
+
+    def get_default_base_image_kaddr(self):
+        raise Exception("Unimplemented")
+
+    def get_default_base_image_paddr(self):
+        raise Exception("Unimplemented")
+
+    def get_default_physmap_kaddr(self):
+        raise Exception("Unimplemented")
+
+    def get_fixed_known_address(self):
+        raise Exception("Unimplemented")
+
 class VM_Arm_64(VM):
     def __init__(self, image_dir, bios_name=None, has_kernel=True):
         super().__init__(arch="arm_64", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT)
