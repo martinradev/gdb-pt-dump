@@ -13,7 +13,6 @@ class QemuGdbMachine(Machine):
     def __init__(self):
         self.pid = QemuGdbMachine.get_qemu_pid()
         self.file = os.open(f"/proc/{self.pid}/mem", os.O_RDONLY)
-        self.mem_size = os.fstat(self.file).st_size
 
     def __del__(self):
         if self.file:
