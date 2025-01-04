@@ -581,7 +581,7 @@ def test_pt_x86_32():
     vm = VM_X86_64(ImageContainer().get_kolibri_x86_32(), fda_name = "kolibri.img")
     vm.start()
 
-    time.sleep(15)
+    time.sleep(30)
 
     gdb = GdbCommandExecutor(vm)
     res = gdb.run_cmd("pt")
@@ -610,7 +610,7 @@ def test_pt_i386():
     vm = VM_X86_32(ImageContainer().get_kolibri_x86_32(), fda_name = "kolibri.img")
     vm.start()
 
-    time.sleep(15)
+    time.sleep(30)
 
     gdb = GdbCommandExecutor(vm)
     res = gdb.run_cmd("pt")
