@@ -138,7 +138,11 @@ class PT_RiscV64_Backend(PTArchBackend):
             low_bit = top_bit - bits_per_level + 1
             entry_index = extract(va, low_bit, top_bit)
             entry_page_pa = pt_addr + entry_index * entry_size
-            entry_value = int.from_bytes(self.machine.read_physical_memory(entry_page_pa, entry_size), 'little')
+            try:
+                entry_value = int.from_bytes(self.machine.read_physical_memory(entry_page_pa, entry_size), 'little')
+            except:
+                pt_walk.set_faulted()
+                break
             entry_value_pa_no_meta = (extract(entry_value, 10, 53)) << 12
             meta_bits = extract_no_shift(entry_value, 0, 9)
             pt_walk.add_stage(f"Level{iter}", entry_index, entry_value_pa_no_meta, meta_bits)
@@ -146,6 +150,7 @@ class PT_RiscV64_Backend(PTArchBackend):
             if extract(meta_bits, 0, 0) == 0:
                 # Not present
                 pt_walk.set_faulted()
+                break
 
             is_leaf = (extract(meta_bits, 1, 3) != 0)
             if is_leaf:
