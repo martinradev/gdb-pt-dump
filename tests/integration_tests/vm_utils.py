@@ -7,8 +7,7 @@ import socket
 import json
 from abc import ABC, abstractmethod
 
-_DEFAULT_QEMU_MONITOR_PORT=55555
-_DEFAULT_QEMU_OLD_MONITOR_PORT=54545
+_DEFAULT_QEMU_MONITOR_PORT=54545
 
 # TODO: add images to github and write a downloader script
 class ImageContainer:
@@ -45,11 +44,10 @@ class ImageContainer:
             raise Exception(f"Unknown arch {arch_name}")
 
 class VM(ABC):
-    def __init__(self, arch, qemu_monitor_port, qemu_old_monitor_port):
+    def __init__(self, arch, qemu_monitor_port):
         self.vm_proc = None
         self.arch = arch
         self.qemu_monitor_port = qemu_monitor_port
-        self.qemu_old_monitor_port = qemu_old_monitor_port
         self.print_uart = bool(os.getenv("GDB_PT_DUMP_TESTS_PRINT_UART"))
 
     def start(self, cmd):
@@ -80,9 +78,6 @@ class VM(ABC):
 
     def get_qemu_monitor_port(self):
         return self.qemu_monitor_port
-
-    def get_qemu_old_monitor_port(self):
-        return self.qemu_old_monitor_port
 
     def wait_for_string_on_line(self, string):
         line = b""
@@ -126,7 +121,7 @@ class VM(ABC):
 
 class VM_X86_64(VM):
     def __init__(self, image_dir, fda_name=None):
-        super().__init__(arch="x86_64", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT, qemu_old_monitor_port=_DEFAULT_QEMU_OLD_MONITOR_PORT)
+        super().__init__(arch="x86_64", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT)
         self.image_dir = image_dir
         self.fda_name = fda_name
 
@@ -178,9 +173,7 @@ class VM_X86_64(VM):
 
         cmd.extend(["-m", str(memory_mib)])
 
-        cmd.extend(["-qmp", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
-
-        cmd.extend(["-monitor", f"tcp:localhost:{self.get_qemu_old_monitor_port()},server,nowait"])
+        cmd.extend(["-monitor", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
 
         cmd.extend(["-nographic", "-snapshot", "-no-reboot"])
 
@@ -204,7 +197,7 @@ class VM_X86_64(VM):
 
 class VM_X86_32(VM):
     def __init__(self, image_dir, fda_name=None):
-        super().__init__(arch="x86_32", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT, qemu_old_monitor_port=_DEFAULT_QEMU_OLD_MONITOR_PORT)
+        super().__init__(arch="x86_32", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT)
         self.image_dir = image_dir
         self.fda_name = fda_name
 
@@ -232,9 +225,7 @@ class VM_X86_32(VM):
 
         cmd.extend(["-m", str(memory_mib)])
 
-        cmd.extend(["-qmp", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
-
-        cmd.extend(["-monitor", f"tcp:localhost:{self.get_qemu_old_monitor_port()},server,nowait"])
+        cmd.extend(["-monitor", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
 
         cmd.extend(["-nographic", "-snapshot", "-no-reboot"])
 
@@ -258,7 +249,7 @@ class VM_X86_32(VM):
 
 class VM_Arm_64(VM):
     def __init__(self, image_dir, bios_name=None, has_kernel=True):
-        super().__init__(arch="arm_64", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT, qemu_old_monitor_port=_DEFAULT_QEMU_OLD_MONITOR_PORT)
+        super().__init__(arch="arm_64", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT)
         self.image_dir = image_dir
         self.bios_name = bios_name
         self.has_kernel = has_kernel
@@ -293,9 +284,7 @@ class VM_Arm_64(VM):
 
         cmd.extend(["-m", str(memory_mib)])
 
-        cmd.extend(["-qmp", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
-
-        cmd.extend(["-monitor", f"tcp:localhost:{self.get_qemu_old_monitor_port()},server,nowait"])
+        cmd.extend(["-monitor", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
 
         cmd.extend(["-nographic", "-snapshot", "-no-reboot"])
 
@@ -321,7 +310,7 @@ class VM_Arm_64(VM):
 
 class VM_Riscv(VM):
     def __init__(self, image_dir):
-        super().__init__(arch="riscv", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT, qemu_old_monitor_port=_DEFAULT_QEMU_OLD_MONITOR_PORT)
+        super().__init__(arch="riscv", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT)
         self.image_dir = image_dir
 
     def start(self, memory_mib=64, kvm=False, kaslr=True, num_cores=1):
@@ -354,9 +343,7 @@ class VM_Riscv(VM):
 
         cmd.extend(["-m", str(memory_mib)])
 
-        cmd.extend(["-qmp", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
-
-        cmd.extend(["-monitor", f"tcp:localhost:{self.get_qemu_old_monitor_port()},server,nowait"])
+        cmd.extend(["-monitor", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
 
         cmd.extend(["-nographic", "-snapshot", "-no-reboot"])
 
@@ -428,10 +415,10 @@ class VmFlatView:
                 prev = r
         return prev
 
-class QemuOldMonitorExecutor:
+class QemuMonitorExecutor:
 
     def __init__(self, vm):
-        self.qemu_monitor_port = vm.get_qemu_old_monitor_port()
+        self.qemu_monitor_port = vm.get_qemu_monitor_port()
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect(("localhost", self.qemu_monitor_port))
         self._read_until("(qemu)")
@@ -502,94 +489,6 @@ class QemuOldMonitorExecutor:
 
     def resume(self):
         self._send_command("cont")
-
-class QemuMonitorExecutor:
-
-    def __init__(self, vm):
-        self.qemu_monitor_port = vm.get_qemu_monitor_port()
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect(("localhost", vm.get_qemu_monitor_port()))
-
-        _header = self.read_line()
-        self.socket.sendall(b'{ "execute": "qmp_capabilities" }\n')
-        self.read_line()
-
-    def stop(self):
-        if self.socket:
-            self.socket.shutdown(socket.SHUT_WR)
-            self.socket.close()
-
-    def _read_memory(self, addr, len, is_virt):
-        exec = ""
-        if is_virt:
-            exec = "memsave"
-        else:
-            exec = "pmemsave"
-        filename = "/tmp/tmp.bin"
-        if os.path.isfile(filename):
-            os.remove(filename)
-
-        # The QMP memsave and pmemsave require signed integers for the address and length.
-        # Thus, using cannonical addresses requires translating them to a signed integer.
-
-        if (addr & (1 << 63)) != 0:
-            addr = addr - (1 << 64)
-
-        cmd = json.dumps({"execute": exec,"arguments":{"val":addr, "size":len, "filename": filename}})
-        self.socket.sendall(cmd.encode("utf-8") + b"\n")
-        while True:
-            res = json.loads(self.read_line())
-            if "error" in res:
-                print(res, cmd)
-                return None
-            if "event" in res:
-                continue
-            assert("return" in res)
-            break
-        data = b""
-        for u in range(3):
-            try:
-                with open(filename, "rb") as f:
-                    data = f.read()
-                    break
-            except:
-                time.sleep(0.1)
-        os.remove(filename)
-        return data
-
-    def pause(self):
-        cmd = json.dumps({"execute": "stop"})
-        self.socket.sendall(cmd.encode("utf-8") + b"\n")
-        res = json.loads(self.read_line())
-        assert("error" not in res)
-        line = self.read_line()
-        assert("error" not in line)
-
-    def resume(self):
-        cmd = json.dumps({"execute": "cont"})
-        self.socket.sendall(cmd.encode("utf-8") + b"\n")
-        res = json.loads(self.read_line())
-        assert("return" in res)
-
-    def read_virt_memory(self, addr, len):
-        data = self._read_memory(addr, len, True)
-        return data
-
-    def read_phys_memory(self, addr, len):
-        return self._read_memory(addr, len, False)
-
-    def run_cmd(self, monitor_cmd):
-        self.socket.sendall(monitor_cmd.encode("utf-8") + b"\n")
-
-    def read_line(self):
-        line = b""
-        while True:
-            b = self.socket.recv(1)
-            if b != b"":
-                line += b
-            if b == b"\n":
-                break
-        return line.decode("utf-8")
 
 class GdbCommandExecutor:
 
@@ -691,13 +590,13 @@ def get_arm_64_binary_names():
     files = [file for file in files if "16k" not in file]
     return files
 
-def check_va_exists(old_monitor, monitor, flatview, va):
-    data = old_monitor.read_virt_memory(va, 4)
+def check_va_exists(monitor, flatview, va):
+    data = monitor.read_virt_memory(va, 4)
     if len(data) == 4:
         # This is the common case that the memory is accessible
         return True
 
-    pa = old_monitor.gva2gpa(va)
+    pa = monitor.gva2gpa(va)
     if pa == None:
         print("Qemu failed to translate the GVA altogether")
         print("This probably means that the page-table parsing or range merging is incorrect")
@@ -725,8 +624,8 @@ def check_va_exists(old_monitor, monitor, flatview, va):
     # Anything else that's not handled is a failure to access memory
     return False
 
-def check_if_belongs_to_io_or_rom(old_monitor, flatview, va):
-    pa = old_monitor.gva2gpa(va)
+def check_if_belongs_to_io_or_rom(monitor, flatview, va):
+    pa = monitor.gva2gpa(va)
     if pa == None:
         print("Qemu failed to translate the GVA altogether")
         print("This probably means that the page-table parsing or range merging is incorrect")
