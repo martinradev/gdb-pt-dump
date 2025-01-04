@@ -74,6 +74,8 @@ class VM(ABC):
         self.qemu_gdb_path = GlobalSocketAllocator.alloc_gdb_socket()
 
     def start(self, cmd):
+        if bool(os.getenv("GDB_PT_DUMP_TESTS_PRINT_VM_LAUNCH_CMD")):
+            print(f"Executing command: {' '.join(shlex.quote(arg) for arg in cmd)}")
         self.vm_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def get_arch(self):
