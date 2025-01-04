@@ -34,7 +34,7 @@ GlobalSocketAllocator = SocketAllocator()
 # TODO: add images to github and write a downloader script
 class ImageContainer:
     def __init__(self):
-        self.images_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
+        self.images_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_images")
 
     def get_linux_image(self, image_name):
         return os.path.join(self.images_dir, image_name)
