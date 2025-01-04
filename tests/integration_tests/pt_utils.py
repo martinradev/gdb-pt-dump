@@ -76,6 +76,10 @@ class MetaFlagsX86(MetaFlags):
     def super_executable(self):
         return self.super_accessible() and self.x
 
+    def __str__(self):
+        # TODO
+        return "UNIMPLEMENTED"
+
 class MetaFlagsArm64(MetaFlags):
     def __init__(self, ur, uw, ux, sr, sw, sx):
         super().__init__()
@@ -114,6 +118,10 @@ class MetaFlagsArm64(MetaFlags):
     def super_executable(self):
         return self.sx
 
+    def __str__(self):
+        # TODO
+        return "UNIMPLEMENTED"
+
 class MetaFlagsRiscv(MetaFlags):
     def __init__(self, r, w, x, s):
         super().__init__()
@@ -125,6 +133,10 @@ class MetaFlagsRiscv(MetaFlags):
     def __eq__(self, other):
         fields = ["r", "w", "x", "s"]
         return all(getattr(self, attr) == getattr(other, attr) for attr in fields)
+
+    def __str__(self):
+        # TODO
+        return "UNIMPLEMENTED"
 
     def executable(self):
         return self.x
@@ -159,6 +171,9 @@ class VirtRange():
     def __eq__(self, other):
         fields = ["va_start", "length", "flags"]
         return all(getattr(self, attr) == getattr(other, attr) for attr in fields)
+
+    def __str__(self):
+        return f"VA_start {hex(self.va_start)}, VA_length: {hex(self.length)}, Flags: {self.flags}"
 
 class Occurrence():
     def __init__(self, occ_va, virt_range):
