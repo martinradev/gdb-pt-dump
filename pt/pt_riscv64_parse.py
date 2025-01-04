@@ -127,7 +127,7 @@ class PT_RiscV64_Backend(PTArchBackend):
         satp = self.machine.read_register("$satp")
         pt_addr = extract(satp, 0, 43) << 12
         mode_value = extract(satp, 60, 63)
-        as_size = get_address_space_size_from_mode(mode_value)
+        as_size = self.get_address_space_size_from_mode(mode_value)
 
         pt_walk = PageTableWalkInfo(va)
         pt_walk.add_register_stage("satp", pt_addr)
