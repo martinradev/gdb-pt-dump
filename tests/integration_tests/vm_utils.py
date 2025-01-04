@@ -4,10 +4,32 @@ import subprocess
 import re
 import time
 import socket
-import json
+import tempfile
+import shutil
+import shlex
 from abc import ABC, abstractmethod
 
-_DEFAULT_QEMU_MONITOR_PORT=54545
+class SocketAllocator:
+    def __init__(self):
+        self._socket_dir = tempfile.mkdtemp()
+
+    def __del__(self):
+        #self.cleanup_all_sockets()
+        pass
+
+    def cleanup_all_sockets(self):
+        shutil.rmtree(self._socket_dir)
+
+    def alloc_monitor_socket(self):
+        return self._alloc_socket("monitor")
+
+    def alloc_gdb_socket(self):
+        return self._alloc_socket("gdb")
+
+    def _alloc_socket(self, type_name):
+        return tempfile.mkstemp(prefix="{}_".format(type_name), dir=self._socket_dir)[1]
+
+GlobalSocketAllocator = SocketAllocator()
 
 # TODO: add images to github and write a downloader script
 class ImageContainer:
@@ -44,11 +66,12 @@ class ImageContainer:
             raise Exception(f"Unknown arch {arch_name}")
 
 class VM(ABC):
-    def __init__(self, arch, qemu_monitor_port):
+    def __init__(self, arch):
         self.vm_proc = None
         self.arch = arch
-        self.qemu_monitor_port = qemu_monitor_port
+        self.qemu_monitor_path = GlobalSocketAllocator.alloc_monitor_socket()
         self.print_uart = bool(os.getenv("GDB_PT_DUMP_TESTS_PRINT_UART"))
+        self.qemu_gdb_path = GlobalSocketAllocator.alloc_gdb_socket()
 
     def start(self, cmd):
         self.vm_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -72,12 +95,11 @@ class VM(ABC):
     def get_fixed_known_address(self):
         raise Exception("Not implemented")
 
-    def get_gdb_server_port(self):
-        default_qemu_gdb_port = 1234
-        return default_qemu_gdb_port
+    def get_qemu_monitor_path(self):
+        return self.qemu_monitor_path
 
-    def get_qemu_monitor_port(self):
-        return self.qemu_monitor_port
+    def get_qemu_gdb_path(self):
+        return self.qemu_gdb_path
 
     def wait_for_string_on_line(self, string):
         line = b""
@@ -121,7 +143,7 @@ class VM(ABC):
 
 class VM_X86_64(VM):
     def __init__(self, image_dir, fda_name=None):
-        super().__init__(arch="x86_64", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT)
+        super().__init__(arch="x86_64")
         self.image_dir = image_dir
         self.fda_name = fda_name
 
@@ -173,13 +195,13 @@ class VM_X86_64(VM):
 
         cmd.extend(["-m", str(memory_mib)])
 
-        cmd.extend(["-monitor", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
+        cmd.extend(["-monitor", f"unix:{self.get_qemu_monitor_path()},server,nowait"])
+
+        cmd.extend(["-gdb", f"unix:{self.get_qemu_gdb_path()},server,nowait"])
 
         cmd.extend(["-nographic", "-snapshot", "-no-reboot"])
 
         cmd.extend(["-smp", str(num_cores)])
-
-        cmd.extend(["-s"])
 
         super().start(cmd)
 
@@ -197,7 +219,7 @@ class VM_X86_64(VM):
 
 class VM_X86_32(VM):
     def __init__(self, image_dir, fda_name=None):
-        super().__init__(arch="x86_32", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT)
+        super().__init__(arch="x86_32")
         self.image_dir = image_dir
         self.fda_name = fda_name
 
@@ -225,13 +247,13 @@ class VM_X86_32(VM):
 
         cmd.extend(["-m", str(memory_mib)])
 
-        cmd.extend(["-monitor", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
+        cmd.extend(["-monitor", f"unix:{self.get_qemu_monitor_path()},server,nowait"])
+
+        cmd.extend(["-gdb", f"unix:{self.get_qemu_gdb_path()},server,nowait"])
 
         cmd.extend(["-nographic", "-snapshot", "-no-reboot"])
 
         cmd.extend(["-smp", str(num_cores)])
-
-        cmd.extend(["-s"])
 
         super().start(cmd)
 
@@ -249,7 +271,7 @@ class VM_X86_32(VM):
 
 class VM_Arm_64(VM):
     def __init__(self, image_dir, bios_name=None, has_kernel=True):
-        super().__init__(arch="arm_64", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT)
+        super().__init__(arch="arm_64")
         self.image_dir = image_dir
         self.bios_name = bios_name
         self.has_kernel = has_kernel
@@ -284,13 +306,13 @@ class VM_Arm_64(VM):
 
         cmd.extend(["-m", str(memory_mib)])
 
-        cmd.extend(["-monitor", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
+        cmd.extend(["-monitor", f"unix:{self.get_qemu_monitor_path()},server,nowait"])
+
+        cmd.extend(["-gdb", f"unix:{self.get_qemu_gdb_path()},server,nowait"])
 
         cmd.extend(["-nographic", "-snapshot", "-no-reboot"])
 
         cmd.extend(["-smp", str(num_cores)])
-
-        cmd.extend(["-s"])
 
         super().start(cmd)
 
@@ -310,7 +332,7 @@ class VM_Arm_64(VM):
 
 class VM_Riscv(VM):
     def __init__(self, image_dir):
-        super().__init__(arch="riscv", qemu_monitor_port=_DEFAULT_QEMU_MONITOR_PORT)
+        super().__init__(arch="riscv")
         self.image_dir = image_dir
 
     def start(self, memory_mib=64, kvm=False, kaslr=True, num_cores=1):
@@ -343,13 +365,13 @@ class VM_Riscv(VM):
 
         cmd.extend(["-m", str(memory_mib)])
 
-        cmd.extend(["-monitor", f"tcp:localhost:{self.get_qemu_monitor_port()},server,nowait"])
+        cmd.extend(["-monitor", f"unix:{self.get_qemu_monitor_path()},server,nowait"])
+
+        cmd.extend(["-gdb", f"unix:{self.get_qemu_gdb_path()},server,nowait"])
 
         cmd.extend(["-nographic", "-snapshot", "-no-reboot"])
 
         cmd.extend(["-smp", str(num_cores)])
-
-        cmd.extend(["-s"])
 
         super().start(cmd)
 
@@ -418,9 +440,8 @@ class VmFlatView:
 class QemuMonitorExecutor:
 
     def __init__(self, vm):
-        self.qemu_monitor_port = vm.get_qemu_monitor_port()
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect(("localhost", self.qemu_monitor_port))
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.socket.connect(vm.get_qemu_monitor_path())
         self._read_until("(qemu)")
 
     def stop(self):
@@ -467,7 +488,7 @@ class QemuMonitorExecutor:
             exec = "memsave"
         else:
             exec = "pmemsave"
-        filename = "/tmp/tmp.bin"
+        filename = tempfile.mktemp()
         if os.path.isfile(filename):
             os.remove(filename)
 
@@ -498,7 +519,7 @@ class GdbCommandExecutor:
             self.elapsed = elapsed
 
     def __init__(self, vm):
-        self.gdb_server_port = vm.get_gdb_server_port() 
+        self.gdb_server_path = vm.get_qemu_gdb_path()
         self.use_multiarch = vm.get_arch() != "x86_64"
         self.script_root_pt = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../", "../", "pt.py"))
 
@@ -515,7 +536,6 @@ class GdbCommandExecutor:
             self._subproc = None
 
     def _start_gdb_process(self):
-        _launch_message = "GDB server launch done"
         cmd = []
         if self.use_multiarch:
             cmd.extend(["gdb-multiarch"])
@@ -527,7 +547,7 @@ class GdbCommandExecutor:
         cmd.extend(["-ex", "set confirm off"])
         cmd.extend(["-ex", "set pagination off"])
         cmd.extend(["-ex", "source {}".format(self.script_root_pt)])
-        cmd.extend(["-ex", f"target remote :{self.gdb_server_port}"])
+        cmd.extend(["-ex", f"target remote {self.gdb_server_path}"])
 
         self._subproc = subprocess.Popen(cmd, stderr=subprocess.STDOUT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=0)
 
@@ -549,7 +569,8 @@ class GdbCommandExecutor:
         self._read_until("(gdb)")
         self._subproc.stdin.write(pt_cmd + "\n")
         self._subproc.stdin.write("p \"(DONE)\"\n")
-        res = self._read_until("(DONE)")[:-7]
+        res = self._read_until("(DONE)")
+        res = res[:res.rfind("\n")]
         t2 = time.time()
 
         if "error" in res.lower() or "exception" in res.lower():

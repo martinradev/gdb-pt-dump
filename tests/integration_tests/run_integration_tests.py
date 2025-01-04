@@ -643,9 +643,11 @@ def test_pt_read_virt_memory(create_resources_fixture_nokaslr, arch_name, linux_
     ranges = parse_va_ranges(arch_name, res.output)
 
     for r in ranges[:10]:
-        gdb.run_cmd(f"pt -read_virt {hex(r.va_start)} {r.length} -o /tmp/virt_dump.bin")
-        gdb.run_cmd(f"dump binary memory /tmp/qemu_virt_dump.bin {hex(r.va_start)} {hex(r.va_start + r.length)}")
-        assert(filecmp.cmp("/tmp/virt_dump.bin", "/tmp/qemu_virt_dump.bin"))
+        pt_read_virt_filename = tempfile.mktemp()
+        gdb_dump_filename = tempfile.mktemp()
+        gdb.run_cmd(f"pt -read_virt {hex(r.va_start)} {r.length} -o {pt_read_virt_filename}")
+        gdb.run_cmd(f"dump binary memory {gdb_dump_filename} {hex(r.va_start)} {hex(r.va_start + r.length)}")
+        assert(filecmp.cmp(gdb_dump_filename, pt_read_virt_filename, shallow=False))
 
 if __name__ == "__main__":
     print("This code should be invoked via 'pytest':", file=sys.stderr)
