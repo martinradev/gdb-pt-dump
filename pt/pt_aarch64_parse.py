@@ -28,7 +28,7 @@ def is_user_executable(block):
 def is_kernel_executable(block):
     return not block.pxn
 
-class Aarch64_Block():
+class Aarch64_Block(CommonPage):
     def __init__(self, va, phys, size, xn, pxn, permissions):
         self.va = va
         self.page_size = size
@@ -37,12 +37,6 @@ class Aarch64_Block():
         self.permissions = permissions
         self.phys = [phys]
         self.sizes = [size]
-
-    def cut_before(self, va):
-        print("cut_before is not implemented")
-
-    def cut_after(self, va):
-        print("cut_after is not implemented")
 
     def to_string(self, phys_verbose):
         varying_str = None
@@ -66,12 +60,6 @@ class Aarch64_Block():
         kspace_str = kspace_color + f" R:{int(kspace_readable)} W:{int(kspace_writeable)} X:{int(kspace_executable)}  " + bcolors.ENDC
         s = f"{varying_str}" + delim + uspace_str + delim + kspace_str
         return s
-
-    def read_memory(self, machine):
-        memory = b""
-        for phys_range_start, phys_range_size in zip(self.phys, self.sizes):
-            memory += machine.read_physical_memory(phys_range_start, phys_range_size)
-        return memory
 
     def pwndbg_is_writeable(self):
         return is_user_writeable(self) or is_kernel_writeable(self)

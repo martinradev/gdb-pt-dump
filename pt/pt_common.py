@@ -46,17 +46,7 @@ def make_canonical(va, top_bit_pos = 48):
 PagePrintSettings = namedtuple('PagePrintSettings', ['va_len', 'page_size_len', 'phys_len'])
 PrintConfig = PagePrintSettings(va_len = 18, page_size_len = 14, phys_len = 12)
 
-class Page():
-    def __init__(self):
-        self.va = None
-        self.page_size = None
-        self.w = None
-        self.x = None
-        self.s = None
-        self.wb = None
-        self.uc = None
-        self.phys = None
-        self.sizes = None
+class CommonPage():
 
     def cut_after(self, cut_addr):
         i = 0
@@ -99,6 +89,18 @@ class Page():
         for phys_range_start, phys_range_size in zip(self.phys, self.sizes):
             memory += machine.read_physical_memory(phys_range_start, phys_range_size)
         return memory
+
+class Page(CommonPage):
+    def __init__(self):
+        self.va = None
+        self.page_size = None
+        self.w = None
+        self.x = None
+        self.s = None
+        self.wb = None
+        self.uc = None
+        self.phys = None
+        self.sizes = None
 
     def pwndbg_is_writeable(self):
         return self.w

@@ -4,7 +4,7 @@ from pt.pt_constants import *
 
 import math
 
-class Riscv64_Page():
+class Riscv64_Page(CommonPage):
     def __init__(self, va, phys, size, readable, writeable, executable, user):
         self.va = va
         self.page_size = size
@@ -14,18 +14,6 @@ class Riscv64_Page():
         self.s = not user
         self.phys = [phys]
         self.sizes = [size]
-
-    def read_memory(self, machine):
-        memory = b""
-        for phys_range_start, phys_range_size in zip(self.phys, self.sizes):
-            memory += machine.read_physical_memory(phys_range_start, phys_range_size)
-        return memory
-
-    def cut_before(self, va):
-        print("cut_before not supported")
-
-    def cut_after(self, va):
-        print("cut_after not supported")
 
     def pwndbg_is_writeable(self):
         return self.w
