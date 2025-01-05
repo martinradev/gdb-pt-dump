@@ -80,4 +80,4 @@ num_jobs=$(($(nproc) / 2))
 
 timeout_limit=120
 
-pytest run_integration_tests.py -o "cache_dir=/tmp" -v -n ${num_jobs} --timeout ${timeout_limit} 2>&1 | tee ${logfile}
+./run_integration_tests.py -o "cache_dir=/tmp" -v -n ${num_jobs} --timeout ${timeout_limit} 2>&1 | tee ${logfile}

@@ -1,4 +1,4 @@
-#!/usr/bin/env pytest
+#!/usr/bin/env -S python3 -m pytest
 
 import os
 import copy
