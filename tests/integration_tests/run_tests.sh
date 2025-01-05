@@ -3,7 +3,21 @@
 set -e
 
 print_usage() {
-    echo "Usage: $0 --logfile <logfile_path>"
+    echo "Example usage: $0 --logfile /tmp/log.txt --use_docker"
+    echo ""
+    echo "  Parameters:"
+    echo ""
+    echo "  --logfile <logfile_path>"
+    echo "    Specifies a logfile for storing stdout and stderr"
+    echo "    output from the test run."
+    echo ""
+    echo "  --use_docker"
+    echo "    Specifies that tests must be executed within a docker"
+    echo "    container. This is useful for running the tests in a"
+    echo "    clean environment with minimal dependencies installed."
+    echo ""
+    echo "  --skip_download"
+    echo "    Skips downloading the image files."
 }
 
 logfile=""
