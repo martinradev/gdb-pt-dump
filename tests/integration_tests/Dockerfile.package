@@ -1,0 +1,22 @@
+FROM ubuntu:24.04 AS build
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive \
+        apt-get install -y \
+            make \
+            nasm \
+            gcc-12 \
+            gcc-12-aarch64-linux-gnu \
+            zstd
+
+RUN mkdir -p /build
+ADD custom_kernels /build/custom_kernels
+COPY Makefile /build/Makefile
+ADD test_images /build/test_images
+WORKDIR /build
+RUN make -j$(nproc)
+RUN ZSTD_CLEVEL=6 tar -I zstd -cf test_images.tar.zst test_images
+
+FROM scratch AS export
+COPY --from=build /build/test_images.tar.zst test_images.tar.zst
+

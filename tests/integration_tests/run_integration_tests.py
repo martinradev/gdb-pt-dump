@@ -38,6 +38,84 @@ def create_resources(arch_name, linux_image, kaslr):
 
     return (vm, gdb, monitor, memory_flatview)
 
+def get_qemu_version():
+    try:
+        # Run the `qemu-system-x86_64 --version` command
+        result = subprocess.run(
+            ["qemu-system-x86_64", "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        if result.returncode == 0:
+            # Extract the version number from the output
+            version_line = result.stdout.splitlines()[0]
+            version = version_line.split()[3]  # Extract the version (e.g., '8.2.2')
+            return version
+        else:
+            raise Exception(f"Error: {result.stderr.strip()}")
+    except FileNotFoundError:
+        raise Exception("QEMU is not installed or qemu-system-x86_64 is not in the PATH.")
+
+def normalize_version(version, length=4):
+    """
+    Normalize a version string by padding it to the required length with zeros.
+
+    :param version: The version string to normalize (e.g., "8.2").
+    :param length: The target number of components in the version.
+    :return: A normalized version string (e.g., "8.2.0").
+    """
+    parts = version.split('.')
+    while len(parts) < length:
+        parts.append('0')  # Pad with zeros
+    return '.'.join(parts[:length])
+
+def compare_versions(version, target):
+    """
+    Compares two version strings.
+
+    :param version: The current version string (e.g., "8.2.1").
+    :param target: The target version string (e.g., "8.2.2").
+    :return: "above", "below", or "equal".
+    """
+    version = normalize_version(version)
+    target = normalize_version(target)
+    version_parts = list(map(int, version.split('.')))
+    target_parts = list(map(int, target.split('.')))
+
+    for v, t in zip(version_parts, target_parts):
+        if v > t:
+            return "above"
+        elif v < t:
+            return "below"
+    # If all parts compared so far are equal, check the length of the version
+    if len(version_parts) > len(target_parts):
+        return "above"
+    elif len(version_parts) < len(target_parts):
+        return "below"
+    return "equal"
+
+_ARE_ARM64_CUSTOM_IMAGES_BROKEN=None
+def are_arm64_custom_images_broken():
+    assert(compare_versions("8.2.1", "8.2.2") == "below")
+    assert(compare_versions("8.2.2", "8.2.2") == "equal")
+    assert(compare_versions("8.2.3", "8.2.2") == "above")
+    assert(compare_versions("7.3", "8.2.2") == "below")
+    assert(compare_versions("7.3", "7.3.1") == "below")
+
+    global _ARE_ARM64_CUSTOM_IMAGES_BROKEN
+    if _ARE_ARM64_CUSTOM_IMAGES_BROKEN == None:
+        qemu_version = get_qemu_version()
+        res = compare_versions(qemu_version, "8.2.2")
+        if res in ["above", "equal"]:
+            # Something gets broken with the custom kernels with QEMU version 8.2.2
+            # The custom kernels work fine on 6.2.0
+            _ARE_ARM64_CUSTOM_IMAGES_BROKEN = True
+        else:
+            _ARE_ARM64_CUSTOM_IMAGES_BROKEN = False
+
+    return _ARE_ARM64_CUSTOM_IMAGES_BROKEN
+
 @pytest.fixture
 def create_resources_fixture_nokaslr(arch_name, linux_image):
     vm, gdb, monitor, memory_flatview = create_resources(arch_name, linux_image, kaslr=False)
@@ -502,6 +580,8 @@ def get_custom_binaries():
 
 @pytest.fixture
 def create_custom_resources_fixture(arch_name, image_name):
+    if arch_name == "arm_64" and are_arm64_custom_images_broken():
+        pytest.skip(reason = "Custom images are broken on QEMU Aarch64 8.2.2 (VM faults)")
     vm = create_custom_vm(arch_name, image_name)
     vm.start()
     vm.wait_for_string_on_line(b"Done")

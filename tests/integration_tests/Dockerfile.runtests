@@ -1,0 +1,35 @@
+FROM ubuntu:24.04 AS build
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive \
+        apt-get install -y \
+            qemu-system \
+            gdb \
+            gdb-multiarch \
+            python3 \
+            python3-pip \
+            python3-pytest \
+            python3-pytest-xdist \
+            python3-pytest-timeout
+
+ARG UID=0
+ARG GID=0
+ARG GROUPNAME=testgroup
+ARG USERNAME=testuser
+
+# RUN groupadd -g ${GID} testgroup
+RUN if ! getent group ${GID} >/dev/null; then \
+        groupadd -g ${GID} ${GROUPNAME}; \
+    fi
+
+# Create user if it does not exist
+RUN if ! id -u ${UID} >/dev/null 2>&1; then \
+        useradd -m -u ${UID} -g ${GID} -s /bin/bash ${USERNAME}; \
+    fi
+
+RUN mkdir -p /gdb-pt-dump && chown -R ${GID}:${UID} /gdb-pt-dump
+USER ${UID}
+WORKDIR /gdb-pt-dump/tests/integration_tests
+ENV GDB_PT_DUMP_TESTS_LOGFILE=/tmp/log.txt
+CMD ./run_tests.sh --skip_download --logfile $GDB_PT_DUMP_TESTS_LOGFILE
+
