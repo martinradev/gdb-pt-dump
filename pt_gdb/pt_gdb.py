@@ -76,7 +76,12 @@ class QemuGdbMachine(Machine):
         return int(ret, 10)
 
     def read_register(self, register_name):
-        return int(gdb.parse_and_eval(register_name).cast(gdb.lookup_type("unsigned long")))
+        for type_name in ["unsigned long", "usize", "uintptr"]:
+            try:
+                return int(gdb.parse_and_eval(register_name).cast(gdb.lookup_type(type_name)))
+            except gdb.error:
+                continue
+        raise Exception(f"Could not read register {register_name}")
 
 class PageTableDumpGdbFrontend(gdb.Command):
     """
